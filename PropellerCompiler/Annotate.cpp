@@ -852,7 +852,7 @@ static void AL_Dump (const unsigned char *pBinary, AL_Type at, int addr, int add
             ++addr;
             if ( caddr >= 0 ) ++caddr;
             }
-        if (( ++nByte > 16 ) && (addr < addrNext))
+        if (( ++nByte >= 16 ) && (addr < addrNext))
             {
             if ((caddr >= 0) && (caddr < 0x800) && ((caddr & 0x03) == 0))
                 printf ("\n%04X %03X", addr, caddr >> 2);
