@@ -19,6 +19,7 @@
 #include "SymbolEngine.h"
 #include "Elementizer.h"
 #include "ErrorStrings.h"
+#include "Annotate.h"
 
 void CompileDatBlocks_EnterInfo(int datstart, int objstart)
 {
@@ -120,6 +121,7 @@ bool CompileDatBlocks_Data(bool& bEof, int pass, bool bSymbol, bool& bResSymbol,
 {
     size = g_pElementizer->GetValue() & 0x000000FF;
     int overrideSize = size;
+    AL_SetType ((AL_Type)((int)atByte + size));
 
     if (!CompileDatBlocks_Advance(bSymbol, bResSymbol, size))
     {
@@ -142,6 +144,7 @@ bool CompileDatBlocks_Data(bool& bEof, int pass, bool bSymbol, bool& bResSymbol,
         {
             // yes, get it
             overrideSize = g_pElementizer->GetValue() & 0x000000FF;
+            AL_SetType ((AL_Type)((int)atByte + size), g_pCompilerData->obj_ptr);
             if (overrideSize < size)
             {
                 g_pCompilerData->error = true;
@@ -247,6 +250,7 @@ bool CompileDatBlocks_File(bool bSymbol, bool bResSymbol, int& size)
 bool CompileDatBlocks_AsmDirective(bool bSymbol, bool& bResSymbol, int& size)
 {
     size = 2; // force to long size
+    AL_SetType (atPASM);
 
     int directive = g_pElementizer->GetValue() & 0x000000FF;
     switch (directive)
@@ -425,6 +429,8 @@ bool CompileDatBlocks_ValidateCallSymbol(bool bIsRet, char* pSymbol)
 bool CompileDatBlocks_AsmInstruction(bool& bEof, int pass, bool bSymbol, bool bResSymbol, int& size, unsigned char condition)
 {
     size = 2; // force to long size
+    AL_SetType (atPASM);
+
     if (!CompileDatBlocks_Advance(bSymbol, bResSymbol, size))
     {
         return false;
@@ -753,6 +759,8 @@ bool CompileDatBlocks()
 
                 datstart = g_pCompilerData->source_start;
                 objstart = g_pCompilerData->obj_ptr;
+                AL_AddLine (atDAT, g_pElementizer->GetSourcePtr (), g_pCompilerData->obj_ptr,
+                    g_pCompilerData->cog_org);
 
                 while (!bEof)
                 {
@@ -770,6 +778,11 @@ bool CompileDatBlocks()
                         continue;
                     }
 
+                    if (g_pElementizer->GetType() != type_block)
+                        {
+                        AL_AddLine (atDAT, g_pElementizer->GetSourcePtr (), g_pCompilerData->obj_ptr,
+                            g_pCompilerData->cog_org);
+                        }
                     g_pCompilerData->inf_start = g_pCompilerData->source_start;
 
                     // clear symbol flags

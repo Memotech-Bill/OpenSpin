@@ -15,6 +15,7 @@
 #include <string.h>
 
 #include "../PropellerCompiler/CompileSpin.h"
+#include "../PropellerCompiler/Annotate.h"
 #include "pathentry.h"
 
 #define MAX_FILES           2048
@@ -26,7 +27,9 @@ static char s_filesAccessed[MAX_FILES][PATH_MAX];
 static void Banner(void)
 {
     fprintf(stdout, "Propeller Spin/PASM Compiler \'OpenSpin\' (c)2012-2018 Parallax Inc. DBA Parallax Semiconductor.\n");
-    fprintf(stdout, "Version 1.00.81 Compiled on %s %s\n",__DATE__, __TIME__);
+    fprintf(stdout, "Fork by Memotech Bill to add \"Annotated Listing\" of generated binary.\n");
+    fprintf(stdout, "https://github.com/Memotech-Bill/OpenSpin\n");
+    fprintf(stdout, "Version 1.01.00 Compiled on %s %s\n",__DATE__, __TIME__);
 }
 
 /* Usage - display a usage message and exit */
@@ -44,6 +47,7 @@ usage: openspin\n\
          [ -d ]                 dump out doc mode\n\
          [ -t ]                 output just the object file tree\n\
          [ -f ]                 output a list of filenames for use in archiving\n\
+         [ -l ]                 *NEW* Generate an Annotated Listing of the binary\n\
          [ -q ]                 quiet mode (suppress banner and non-error text)\n\
          [ -v ]                 verbose output\n\
          [ -p ]                 disable the preprocessor\n\
@@ -286,6 +290,10 @@ int main(int argc, char* argv[])
 
             case 'e':
                 compilerConfig.bBinary = false;
+                break;
+
+            case 'l':
+                AL_Request ();
                 break;
 
             case 'q':

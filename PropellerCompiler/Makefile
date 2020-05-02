@@ -55,7 +55,8 @@ OBJ=$(BUILD)/BlockNestStackRoutines.o \
 	$(BUILD)/flexbuf.o \
 	$(BUILD)/preprocess.o \
 	$(BUILD)/textconvert.o \
-	$(BUILD)/objectheap.o
+	$(BUILD)/objectheap.o \
+	$(BUILD)/Annotate.o
 
 
 all: $(BUILD) $(LIBNAME) Makefile

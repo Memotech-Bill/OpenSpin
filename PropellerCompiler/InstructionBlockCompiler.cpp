@@ -20,6 +20,7 @@
 #include "Elementizer.h"
 #include "ErrorStrings.h"
 #include "CompileUtilities.h"
+#include "Annotate.h"
 
 //////////////////////////////////////////
 // declarations for internal functions
@@ -79,6 +80,7 @@ bool CompileBlock(int column)
         {
             break;
         }
+        AL_AddLine (atSpinCode, g_pElementizer->GetSourcePtr (), g_pCompilerData->obj_ptr);
 
         if (g_pElementizer->GetType() == type_if)
         {

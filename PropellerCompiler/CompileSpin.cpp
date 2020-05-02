@@ -19,6 +19,7 @@
 #include "textconvert.h"
 #include "preprocess.h"
 #include "Utilities.h"
+#include "Annotate.h"
 
 #define ObjFileStackLimit   16
 #define ListLimit           2000000
@@ -110,6 +111,7 @@ static bool GetPASCIISource(char* pFilename)
         {
             s_pFreeFileBufferFunc(pRawBuffer);
         }
+        AL_OpenObject (pFilename, s_pCompilerData->current_file_path, s_pCompilerData->source);
     }
     else
     {
@@ -612,6 +614,7 @@ unsigned char* CompileSpin(char* pFilename, int* pnResultLength)
 
     int nOriginalSize = 0;
 
+    AL_Enable (true);
 restart_compile:
     s_pCompilerData = InitStruct();
     s_pCompilerData->bUnusedMethodElimination = s_compilerConfig.bUnusedMethodElimination;
@@ -720,6 +723,7 @@ restart_compile:
             printf("Program size is %d bytes\n", bufferSize);
         }
         *pnResultLength = bufferSize;
+        AL_Output (s_pCompileResultBuffer, bufferSize, s_pCompilerData, s_compilerConfig.bUsePreprocessor);
     }
 
     if (s_compilerConfig.bDumpSymbols)

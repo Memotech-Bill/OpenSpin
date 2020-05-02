@@ -20,6 +20,7 @@
 #include "Elementizer.h"
 #include "ErrorStrings.h"
 #include "UnusedMethodUtils.h"
+#include "Annotate.h"
 
 //////////////////////////////////////////
 // declarations for internal functions
@@ -485,6 +486,9 @@ bool CompileSubBlocksId_Compile(int blockType, bool &bFirst, int &nMethodIndex)
                     g_pCompilerData->error_msg = g_pErrorStrings[error_eausn];
                     return false;
                 }
+                AL_Symbol ((blockType == block_pub) ? atSpinPub : atSpinPri,
+                    g_pElementizer->GetSourcePtr (), g_pElementizer->GetCurrentSymbol(),
+                    g_pCompilerData->obj_ptr);
 
                 // save a copy of the symbol
                 g_pElementizer->BackupSymbol();
@@ -508,6 +512,10 @@ bool CompileSubBlocksId_Compile(int blockType, bool &bFirst, int &nMethodIndex)
                                 if (params < 15)
                                 {
                                     params++;
+                                    AL_Symbol (atSpinPar,
+                                        g_pElementizer->GetSourcePtr (),
+                                        g_pElementizer->GetCurrentSymbol(),
+                                        g_pCompilerData->obj_ptr);
                                     bool bComma = false;
                                     if (!GetCommaOrRight(bComma))
                                     {
@@ -553,6 +561,10 @@ bool CompileSubBlocksId_Compile(int blockType, bool &bFirst, int &nMethodIndex)
                             g_pCompilerData->error_msg = g_pErrorStrings[error_eaurn];
                             return false;
                         }
+                        AL_Symbol (atSpinRes,
+                            g_pElementizer->GetSourcePtr (),
+                            g_pElementizer->GetCurrentSymbol(),
+                            g_pCompilerData->obj_ptr);
                     }
                     // check for locals
                     locals = 0;
@@ -573,6 +585,10 @@ bool CompileSubBlocksId_Compile(int blockType, bool &bFirst, int &nMethodIndex)
                             }
                             if (g_pElementizer->GetType() == type_undefined)
                             {
+                                AL_Symbol (atSpinPar,
+                                    g_pElementizer->GetSourcePtr (),
+                                    g_pElementizer->GetCurrentSymbol(),
+                                    g_pCompilerData->obj_ptr);
                                 // is it an array?
                                 if (g_pElementizer->CheckElement(type_leftb))
                                 {
@@ -721,6 +737,7 @@ bool CompileObjBlocksId()
     {
         if(g_pElementizer->GetNextBlock(block_obj, bEof))
         {
+            if ( !bEof ) AL_AddLine (atSpinObj, g_pElementizer->GetSourcePtr(), g_pCompilerData->obj_ptr);
             while (!bEof)
             {
                 if (!g_pElementizer->GetNext(bEof))
@@ -791,6 +808,9 @@ bool CompileObjBlocksId()
                         value <<= 8;
                         value |= (g_pCompilerData->obj_ptr >> 2) & 0xFF;
                         g_pSymbolEngine->AddSymbol(g_pCompilerData->symbolBackup, type_obj, value);
+                        AL_AddLine (atSpinObj, g_pElementizer->GetSourcePtr(), g_pCompilerData->obj_ptr);
+                        AL_SubObject (g_pElementizer->GetSourcePtr(), g_pCompilerData->symbolBackup,
+                            &g_pCompilerData->obj_filenames[objFileIndex << 8], instanceCount);
 #ifdef RPE_DEBUG
                         printf("Obj %s %d (%d, %d)\n", g_pCompilerData->symbolBackup, value, instanceCount, g_pCompilerData->obj_ptr);
 #endif
@@ -1142,6 +1162,7 @@ bool CompileVarBlocks()
 
                         // add the symbol
                         g_pSymbolEngine->AddSymbol(g_pCompilerData->symbolBackup, (nSize == 0) ? type_var_byte : ((nSize == 1) ? type_var_word : type_var_long), nValue);
+                        AL_Variable (g_pCompilerData->symbolBackup, nSize, nCount);
 #ifdef RPE_DEBUG
                         printf("var: %s %d (%d, %d)\n", g_pCompilerData->symbolBackup, nValue, nSize, nCount);
 #endif
@@ -1195,6 +1216,7 @@ bool CompileSubBlocks_Compile(int blockType, int &subCount, int &nMethodIndex)
             {
                 int saved_inf_start = g_pCompilerData->source_start;
                 int saved_inf_data0 = g_pCompilerData->obj_ptr;
+                AL_AddLine (atSpinCode, g_pElementizer->GetSourcePtr (), g_pCompilerData->obj_ptr);
 
                 if (!g_pElementizer->GetNext(bEof))
                 {
@@ -1502,6 +1524,7 @@ bool CompileObjBlocks()
         //unsigned short psize = *((unsigned short*)(pObj));
         unsigned short psize = (unsigned short)pObj[0] | ((unsigned short)pObj[1] << 8);
         pObj += 2;
+        AL_Include (i, g_pCompilerData->obj_ptr, psize);
 
         for (unsigned short j = 0; j < psize; j++)
         {
@@ -1527,6 +1550,8 @@ bool CompileObjBlocks()
         // write var ptr back to index
         *pIndex = (unsigned short)(g_pCompilerData->var_ptr);
         pIndex++;
+        AL_Symbol (atSpinObj, g_pCompilerData->obj_name_start[index],
+            &g_pCompilerData->obj_filenames[index << 8], g_pCompilerData->obj_start + 4 * i);
 
         // update var ptr and check limit
         g_pCompilerData->var_ptr += objvar[index];

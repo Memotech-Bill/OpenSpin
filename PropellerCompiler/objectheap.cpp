@@ -13,6 +13,7 @@
 
 #include "PropellerCompiler.h"
 #include "objectheap.h"
+#include "Annotate.h"
 
 // Object heap (compile-time objects)
 struct ObjHeap
@@ -42,6 +43,7 @@ bool AddObjectToHeap(char* name, CompilerData* pCompilerData)
         s_ObjHeap[s_nObjHeapIndex].ObjSize = pCompilerData->obj_ptr;
         s_ObjHeap[s_nObjHeapIndex].Obj = new char[pCompilerData->obj_ptr];
         memcpy(s_ObjHeap[s_nObjHeapIndex].Obj, &(pCompilerData->obj[0]), pCompilerData->obj_ptr);
+        AL_AddToHeap (s_nObjHeapIndex);
         s_nObjHeapIndex++;
         return true;
     }
@@ -90,6 +92,7 @@ bool CopyObjectsFromHeap(CompilerData* pCompilerData, char* filenames)
         pCompilerData->obj_offsets[i] = p;
         pCompilerData->obj_lengths[i] = s_ObjHeap[nObjIdx].ObjSize;
         p += s_ObjHeap[nObjIdx].ObjSize;
+        AL_CopyFromHeap (nObjIdx, i);
     }
 
     return true;
