@@ -12,7 +12,7 @@ void AL_Request (void);
 // Enable annotated listing
 void AL_Enable (bool bEnable);
 // Open collection of data for an object
-void AL_OpenObject (const char *psFile, const char *psPath, const char *pSource);
+void AL_OpenObject (const char *psFile, const struct CompilerData *pcd, struct preprocess *preproc);
 // Save Code Symbols
 void AL_Symbol (AL_Type at, int posn, const char *psSymbol, int addr, int caddr = -1);
 // Associate a code line with an address
@@ -30,6 +30,6 @@ void AL_Variable (const char *psName, int nSize, int nCount);
 // Define a Sub-Object
 void AL_SubObject (int posn, const char *psName, const char *psObject, int nCount);
 // Output the annotated listing
-void AL_Output (const unsigned char *pBinary, int nSize, const struct CompilerData *pcd, bool bPrep);
+void AL_Output (const unsigned char *pBinary, int nSize, const struct CompilerData *pcd);
 
 #endif

@@ -4,6 +4,7 @@
 #include "PropellerCompiler.h"
 #include "CompileSpin.h"
 #include "textconvert.h"
+#include "preprocess.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -87,6 +88,7 @@ public:
     ~AL_Object () {}                                                // Destructor
     const std::string *File (void) const { return &m_sFile; }       // Get source file name
     const std::string *Path (void) const { return &m_sPath; }       // Get path to source file
+    void *PreProc (void) const { return m_ppstate; }                // Pre-processor define state
     void AddLine (AL_Type at, int posn, int addr, int caddr);       // Add location of a source line
     void SetType (AL_Type, int addr);                               // Set a type change for last source line
     bool GetOnHeap (void) const { return m_bOnHeap; }               // Return OnHeap flag
@@ -99,12 +101,13 @@ public:
     void PlaceLines (const AL_Object *pobj, int nOffset);           // Place source lines at addresses
     void ListVariables (const std::string *psName, int &addr) const;// List variable locations
     void Output (const unsigned char *pBinary, int nSize,
-        const struct CompilerData *pcd, bool bPrep);                // Output listing
+        const struct CompilerData *pcd);                            // Output listing
     
 private:
     std::string m_sFile;                                            // Source file of object
     std::string m_sPath;                                            // Path of source file
     int m_posnLast;                                                 // Position of last source line
+    void *m_ppstate;                                                // Preprocessor state
     std::map<int, AL_SourceLine> m_lines;                           // Source lines for the object
     std::map<int, AL_Point> m_points;                               // Address information for object
     bool m_bOnHeap;                                                 // True if object is on heap
@@ -115,15 +118,16 @@ private:
     };
 
 // Global data:
-static bool g_bSelected = false;            // Annotated output requested
-static bool g_bEnable = false;              // Collection of data enabled
-static AL_Object * g_alobj = NULL;          // Current object
-static const char *g_pSource = NULL;        // Pointer to source in compiler
-static std::map<int, AL_Object *> g_alheap; // Object heap
-static std::map<int, AL_Object *> g_objs;   // Objects on obj_data
-static const AL_Object *g_pobjFile = NULL;  // Object of currently loaded source file
-static char *g_pFileSrc = NULL;             // Source code loaded from file
-             
+static bool g_bSelected = false;                    // Annotated output requested
+static bool g_bEnable = false;                      // Collection of data enabled
+static AL_Object * g_alobj = NULL;                  // Current object
+static const char *g_pSource = NULL;                // Pointer to source in compiler
+static std::map<int, AL_Object *> g_alheap;         // Object heap
+static std::map<int, AL_Object *> g_objs;           // Objects on obj_data
+static const AL_Object *g_pobjFile = NULL;          // Object of currently loaded source file
+static char *g_pFileSrc = NULL;                     // Source code loaded from file
+static struct preprocess *g_preprocessor = NULL;    // File preprocessor data
+
 // Global functions:
 // Request collection of annotation data
 void AL_Request (void)
@@ -139,17 +143,18 @@ void AL_Enable (bool bEnable)
     }
 
 // Open annotation data for a given object
-void AL_OpenObject (const char *psFile, const char *psPath, const char *pSource)
+void AL_OpenObject (const char *psFile, const struct CompilerData *pcd, struct preprocess *preproc)
     {
     if ( g_bEnable )
         {
+        g_preprocessor = preproc;
         if (( g_alobj == NULL ) || ( *g_alobj->File () != psFile ))
             {
             std::map<int, AL_Object *>::iterator it;
             if ( ( g_alobj != NULL ) && ( ! g_alobj->GetOnHeap () ) ) delete g_alobj;
-            g_alobj = new AL_Object (psFile, psPath);
+            g_alobj = new AL_Object (psFile, pcd->current_file_path);
             }
-        g_pSource = pSource;
+        g_pSource = pcd->source;
         }
     }
 
@@ -249,17 +254,17 @@ void AL_Include (int nIndex, int nOffset, int nSize)
     }
 
 // Output the annotated listing
-void AL_Output (const unsigned char *pBinary, int nSize, const struct CompilerData *pcd, bool bPrep)
+void AL_Output (const unsigned char *pBinary, int nSize, const struct CompilerData *pcd)
     {
     if ( g_bEnable )
         {
-        g_alobj->Output (pBinary, nSize, pcd, bPrep);
+        g_alobj->Output (pBinary, nSize, pcd);
         }
     }
 
 // Load source file - Unfortunately GetPASCIISource has a fixed destination,
 // so we have to duplicate the functionality here
-static bool AL_LoadSource (const AL_Object *pobj, bool bPrep)
+static bool AL_LoadSource (const AL_Object *pobj)
     {
     if ( pobj == g_pobjFile ) return true;
     g_pobjFile = NULL;
@@ -288,11 +293,34 @@ static bool AL_LoadSource (const AL_Object *pobj, bool bPrep)
         return false;
         }
     praw[nLength] = '\0';
+    char *psrc = praw;
+    if ( pobj->PreProc () )
+        {
+        memoryfile mfile;
+        mfile.buffer = praw;
+        mfile.length = nLength;
+        mfile.readoffset = 0;
+        pp_restore_define_state (g_preprocessor, pobj->PreProc ());
+        pp_push_file_struct (g_preprocessor, &mfile, pobj->File ()->c_str ());
+        pp_run (g_preprocessor);
+        psrc = pp_finish (g_preprocessor);
+        nLength = (int) strlen (psrc);
+        if (nLength > 0)
+            {
+            free (praw);
+            praw = NULL;
+            }
+        else
+            {
+            free (psrc);
+            psrc = praw;
+            }
+        }
     bool bResult = false;
     g_pFileSrc = (char *) calloc (nLength + 1, 1);
     if ( g_pFileSrc != NULL )
-        bResult = UnicodeToPASCII(praw, nLength, g_pFileSrc, bPrep);
-    free (praw);
+        bResult = UnicodeToPASCII(psrc, nLength, g_pFileSrc, g_preprocessor != NULL);
+    free (psrc);
     if (bResult)
         {
         g_pobjFile = pobj;
@@ -968,6 +996,8 @@ AL_Object::AL_Object (const char *psFile, const char *psPath)
     m_sPath = psPath;
     m_bOnHeap = false;
     m_routines.push_back (AL_Routine (atSpinObj, "Next Object"));
+    if (g_preprocessor) m_ppstate = pp_get_define_state(g_preprocessor);
+    else m_ppstate = NULL;
     }
 
 // Add location of a source line
@@ -1082,7 +1112,7 @@ void AL_Object::ListVariables (const std::string *psName, int &addr) const
     }
 
 // Output the annotated listing
-void AL_Object::Output (const unsigned char *pBinary, int nSize, const struct CompilerData *pcd, bool bPrep)
+void AL_Object::Output (const unsigned char *pBinary, int nSize, const struct CompilerData *pcd)
     {
     std::vector<int>adlist;
     std::map<int, AL_Point>::iterator it;
@@ -1125,7 +1155,7 @@ void AL_Object::Output (const unsigned char *pBinary, int nSize, const struct Co
             char sCog[4];
             AL_Point &point = m_points[addr - iShift];
             const AL_Object *pobj = point.Object ();
-            AL_LoadSource (pobj, bPrep);
+            AL_LoadSource (pobj);
             int nLine = point.Sort ();
             if ( nLine > 0 )
                 {

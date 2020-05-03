@@ -1,4 +1,4 @@
- ///////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////
 //                                                           //
 // Propeller Spin/PASM Compiler Command Line Tool 'OpenSpin' //
 // (c)2012-2016 Parallax Inc. DBA Parallax Semiconductor.    //
@@ -111,7 +111,8 @@ static bool GetPASCIISource(char* pFilename)
         {
             s_pFreeFileBufferFunc(pRawBuffer);
         }
-        AL_OpenObject (pFilename, s_pCompilerData->current_file_path, s_pCompilerData->source);
+        AL_OpenObject (pFilename, s_pCompilerData,
+            (s_compilerConfig.bUsePreprocessor ? &s_preprocessor : NULL));
     }
     else
     {
@@ -723,7 +724,7 @@ restart_compile:
             printf("Program size is %d bytes\n", bufferSize);
         }
         *pnResultLength = bufferSize;
-        AL_Output (s_pCompileResultBuffer, bufferSize, s_pCompilerData, s_compilerConfig.bUsePreprocessor);
+        AL_Output (s_pCompileResultBuffer, bufferSize, s_pCompilerData);
     }
 
     if (s_compilerConfig.bDumpSymbols)
