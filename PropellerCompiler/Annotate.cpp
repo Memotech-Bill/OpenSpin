@@ -174,37 +174,49 @@ void AL_AddLine (AL_Type at, int posn, int addr, int caddr)
 // Set a data type for a given address
 void AL_SetType (AL_Type at, int addr)
     {
-    g_alobj->SetType (at, addr);
+    if ( ( g_bEnable ) && ( g_alobj != NULL ) )
+        {
+        g_alobj->SetType (at, addr);
+        }
     }
 
 // Save Code Symbols
 void AL_Symbol (AL_Type at, int posn, const char *psSymbol, int addr, int caddr)
     {
-    g_alobj->AddSymbol (at, psSymbol);
+    if ( ( g_bEnable ) && ( g_alobj != NULL ) )
+        {
+        g_alobj->AddSymbol (at, psSymbol);
+        }
     }
 
 // Add an Object Variable
 void AL_Variable (const char *psName, int nSize, int nCount)
     {
-    g_alobj->AddVariable (psName, nSize, nCount);
+    if ( ( g_bEnable ) && ( g_alobj != NULL ) )
+        {
+        g_alobj->AddVariable (psName, nSize, nCount);
+        }
     }
 
 // Add a Sub-Object reference
 void AL_SubObject (int posn, const char *psName, const char *psObject, int nCount)
     {
-    std::string sFile = psObject;
-    sFile += ".spin";
-    AL_Object *pobj = NULL;
-    std::map<int, AL_Object *>::iterator it;
-    for (it = g_alheap.begin (); it != g_alheap.end (); ++it)
+    if ( ( g_bEnable ) && ( g_alobj != NULL ) )
         {
-        if ( *(it->second->File ()) == sFile )
+        std::string sFile = psObject;
+        sFile += ".spin";
+        AL_Object *pobj = NULL;
+        std::map<int, AL_Object *>::iterator it;
+        for (it = g_alheap.begin (); it != g_alheap.end (); ++it)
             {
-            pobj = it->second;
-            break;
+            if ( *(it->second->File ()) == sFile )
+                {
+                pobj = it->second;
+                break;
+                }
             }
+        if ( pobj != NULL ) g_alobj->AddSubObject (posn, psName, pobj, nCount);
         }
-    if ( pobj != NULL ) g_alobj->AddSubObject (posn, psName, pobj, nCount);
     }
 
 // Add current object to heap
