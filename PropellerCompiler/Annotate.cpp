@@ -63,6 +63,16 @@ struct AL_ObjRef
     int m_count;                                                    // Size of array
     };
 
+// Object distillation records
+struct AL_DistRec
+    {
+    AL_DistRec (int start = 0, int end = 0, int reloc = 0)
+        { m_start = start; m_end = end; m_reloc = reloc; }    // Constructor
+    int m_start;
+    int m_end;
+    int m_reloc;
+    };
+
 // Class to collect details of an Object
 class AL_Object
     {
@@ -82,6 +92,8 @@ public:
     void AddVariable (const char *psName, int nSize, int nCount);   // Add a global variable
     void AddSubObject (int posn, const char *psName,
         const AL_Object *, int nCount);                             // Add a sub-object reference
+    void AddDistill (int start, int length, int reloc);             // Add a distillation record
+    int DistillAddr (int addr);                                     // Translate distilled address
     void PlaceLines (const AL_Object *pobj, int nOffset);           // Place source lines at addresses
     void ListVariables (const std::string *psName, int &addr) const;// List variable locations
     void Output (const unsigned char *pBinary, int nSize,
@@ -99,6 +111,8 @@ private:
     std::vector<int> m_routines;                                    // Source locations for routines
     std::vector<std::pair<std::string, int> > m_variables[3];       // Add global variables
     std::map<int, AL_ObjRef> m_subobjs;                             // Sub-object references
+    std::vector<AL_DistRec> m_distill;                              // Object distillation records
+    bool m_bFixup;                                                  // True if distillation fixup required
     };
 
 // Global data:
@@ -261,6 +275,15 @@ void AL_Include (int nIndex, int nOffset, int nSize)
     if ( g_bEnable )
         {
         g_alobj->Include (g_objs[nIndex], nOffset);
+        }
+    }
+
+// Define a distillation block
+void AL_Distill (int start, int length, int reloc)
+    {
+    if ( g_bEnable )
+        {
+        g_alobj->AddDistill (start, start + length, reloc - start);
         }
     }
 
@@ -456,7 +479,7 @@ static void AL_ByteCode (const unsigned char *pBinary, int addr, int addrNext)
             op_Unsigned_Effected_Offset
             } op;
         } codes[] = {
-        {"Frame_Call_Return", ByteCode::op_None},	// 00
+            {"Frame_Call_Return", ByteCode::op_None},	// 00
             {"Frame_Call_Noreturn", ByteCode::op_None},	// 01
             {"Frame_Call_Abort", ByteCode::op_None},	// 02
             {"Frame_Call_Trashabort", ByteCode::op_None},	// 03
@@ -729,17 +752,15 @@ static void AL_ByteCode (const unsigned char *pBinary, int addr, int addrNext)
             case ByteCode::op_None:
                 break;
             case ByteCode::op_Obj_Call_Pair:
-                ll = AL_BWord (&pBinary[++addr]);
-                addr += 2;
-                fprintf (g_pfilList, " %04X", ll);
-                nCol += 5;
-                sprintf (sAddr, ", $%04X", ll);
+                bl = pBinary[++addr];
+                fprintf (g_pfilList, " %02X", bl);
+                nCol += 3;
+                sprintf (sAddr, ", $%02X", bl);
                 sArgs += sAddr;
-                ll = AL_BWord (&pBinary[++addr]);
-                ++addr;
-                fprintf (g_pfilList, " %04X", ll);
-                nCol += 5;
-                sprintf (sAddr, ", $%04X", ll);
+                bl = pBinary[++addr];
+                fprintf (g_pfilList, " %02X", bl);
+                nCol += 3;
+                sprintf (sAddr, ", $%02X", bl);
                 sArgs += sAddr;
                 break;
             case ByteCode::op_Packed_Literal:
@@ -1022,24 +1043,49 @@ void AL_Object::AddVariable (const char *psName, int nSize, int nCount)
     m_variables[nSize].push_back (std::pair<std::string, int> (std::string (psName), nCount));
     }
 
+// Add a Sub-Object reference
 void AL_Object::AddSubObject (int posn, const char *psName, const AL_Object *pobj, int nCount)
     {
     m_subobjs[posn] = AL_ObjRef (psName, pobj, nCount);
+    }
+
+// Add an Object Distillation record
+void AL_Object::AddDistill (int start, int length, int reloc)
+    {
+    if ( ( ! m_bFixup ) && ( m_distill.size () > 0 ) ) m_bFixup = ( start != m_distill.back ().m_end );
+    m_distill.push_back (AL_DistRec (start, length, reloc));
+    }
+
+// Translate an address following distillation
+int AL_Object::DistillAddr (int addr)
+    {
+    if ( ! m_bFixup ) return addr;
+    std::vector<AL_DistRec>::iterator it;
+    for (it = m_distill.begin (); it != m_distill.end (); ++it)
+        {
+        if ( ( addr >= it->m_start ) && ( addr < it->m_end ) ) return addr + it->m_reloc;
+        }
+    return -1;
     }
 
 // Associate source lines with addresses in the binary
 void AL_Object::PlaceLines (const AL_Object *pobj, int nOffset)
     {
     std::map<int, AL_SourceLine>::const_iterator it;
-    m_points[nOffset] = AL_Point (pobj);
-    for (it = pobj->m_lines.begin (); it != pobj->m_lines.end (); ++it)
+    int addr = DistillAddr (nOffset);
+    if ( addr >= 0 )
         {
-        m_points[it->second.Addr () + nOffset].AddLine (pobj, it->first);
-        }
-    std::vector<std::pair<AL_Object *, int> >::const_iterator it2;
-    for (it2 = pobj->m_include.begin (); it2 != pobj->m_include.end (); ++it2)
-        {
-        PlaceLines (it2->first, it2->second + nOffset);
+        m_points[addr] = AL_Point (pobj);
+        for (it = pobj->m_lines.begin (); it != pobj->m_lines.end (); ++it)
+            {
+            addr = DistillAddr (it->second.Addr () + nOffset);
+            if ( addr >= 0 ) m_points[addr].AddLine (pobj, it->first);
+            }
+        std::vector<std::pair<AL_Object *, int> >::const_iterator it2;
+        for (it2 = pobj->m_include.begin (); it2 != pobj->m_include.end (); ++it2)
+            {
+            PlaceLines (it2->first, it2->second + nOffset);
+            }
         }
     }
 

@@ -31,6 +31,8 @@ void AL_Include (int nIndex, int nOffset, int nSize);
 void AL_Variable (const char *psName, int nSize, int nCount);
 // Define a Sub-Object
 void AL_SubObject (int posn, const char *psName, const char *psObject, int nCount);
+// Enter an Object Distillation Record
+void AL_Distill (int start, int length, int reloc);
 // Output the annotated listing
 void AL_Output (const unsigned char *pBinary, int nSize, const struct CompilerData *pcd);
 

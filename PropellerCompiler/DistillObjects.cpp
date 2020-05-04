@@ -21,6 +21,7 @@
 #include "SymbolEngine.h"
 #include "Elementizer.h"
 #include "ErrorStrings.h"
+#include "Annotate.h"
 
 bool DistillSetup_Enter(unsigned short value)
 {
@@ -242,6 +243,7 @@ void DistillRebuild()
         unsigned char* pObj = &(g_pCompilerData->obj[g_pCompilerData->dis[disPtr + 1]]);
         unsigned short objLength = *((unsigned short*)pObj);
         memcpy(&(s_rebuildBuffer[rebuildPtr]), pObj, (size_t)objLength);
+        AL_Distill (g_pCompilerData->dis[disPtr + 1], objLength, rebuildPtr);
 
         // fixup the distiller record
         g_pCompilerData->dis[disPtr+1] = rebuildPtr;
