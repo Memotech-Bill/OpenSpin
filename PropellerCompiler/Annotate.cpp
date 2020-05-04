@@ -51,23 +51,6 @@ private:
     std::vector<int> m_lines;                                   // Source lines related to this address
     };
 
-// Class to collect details of PUB and PRI routines
-class AL_Routine
-    {
-public:
-    AL_Routine (AL_Type at, const char *psName);                    // Constructor
-    ~AL_Routine () {}                                               // Destructor
-    void AddSymbol (AL_Type at, const char *psName);                // Define a symbol in the routine
-    const std::string *GetName (void) const { return &m_name; }     // Get the routine name
-    int NumSymbols (void) const { return m_vars.size (); }          // Get the number of symbols
-    AL_Type GetType (int iIndex) const;                             // Get the type of a symbol
-    const std::string *GetSymbol (int iIndex) const;                // Get the name of a symbol
-private:
-    std::string m_name;                                             // Name of routine
-    AL_Type m_at;                                                   // Type of routine
-    std::vector<std::pair<AL_Type, std::string> > m_vars;           // Variables for routine
-    };
-
 // Details of object references
 struct AL_ObjRef
     {
@@ -89,12 +72,13 @@ public:
     const std::string *File (void) const { return &m_sFile; }       // Get source file name
     const std::string *Path (void) const { return &m_sPath; }       // Get path to source file
     void *PreProc (void) const { return m_ppstate; }                // Pre-processor define state
+    void Restart (void);                                            // Restart compilation
     void AddLine (AL_Type at, int posn, int addr, int caddr);       // Add location of a source line
     void SetType (AL_Type, int addr);                               // Set a type change for last source line
     bool GetOnHeap (void) const { return m_bOnHeap; }               // Return OnHeap flag
     void SetOnHeap (bool bOnHeap) { m_bOnHeap = bOnHeap; }          // Set OnHeap flag
-    void Include (const AL_Object *pobj, int nOffset);              // Include a sub-object from heap
-    void AddSymbol (AL_Type at, const char *psName);                // Define a symbol in the object
+    void Include (AL_Object *pobj, int nOffset);                    // Include a sub-object from heap
+    void AddRoutine (int posn) { m_routines.push_back (posn); }     // Add a routine definition to the object
     void AddVariable (const char *psName, int nSize, int nCount);   // Add a global variable
     void AddSubObject (int posn, const char *psName,
         const AL_Object *, int nCount);                             // Add a sub-object reference
@@ -111,8 +95,8 @@ private:
     std::map<int, AL_SourceLine> m_lines;                           // Source lines for the object
     std::map<int, AL_Point> m_points;                               // Address information for object
     bool m_bOnHeap;                                                 // True if object is on heap
-    std::vector<std::pair<const AL_Object *, int> > m_include;      // Objects included from heap
-    std::vector<AL_Routine> m_routines;                             // Symbols for routines
+    std::vector<std::pair<AL_Object *, int> > m_include;            // Objects included from heap
+    std::vector<int> m_routines;                                    // Source locations for routines
     std::vector<std::pair<std::string, int> > m_variables[3];       // Add global variables
     std::map<int, AL_ObjRef> m_subobjs;                             // Sub-object references
     };
@@ -127,12 +111,35 @@ static std::map<int, AL_Object *> g_objs;           // Objects on obj_data
 static const AL_Object *g_pobjFile = NULL;          // Object of currently loaded source file
 static char *g_pFileSrc = NULL;                     // Source code loaded from file
 static struct preprocess *g_preprocessor = NULL;    // File preprocessor data
+static std::string g_sListFile;                     // Name of list file (or "-" for stdout)
+static FILE *g_pfilList = NULL;                     // List output file stream
 
 // Global functions:
 // Request collection of annotation data
-void AL_Request (void)
+void AL_Request (AL_Mode mode, const char *psName)
     {
-    g_bSelected = true;
+    const char *psExt;
+    switch (mode)
+        {
+        case amConsole:
+            g_sListFile = "-";
+            g_bSelected = true;
+            break;
+        case amOutput:
+            psExt = strrchr (psName, '.');
+            if ( psExt ) g_sListFile = std::string (psName, psExt - psName);
+            else g_sListFile = psName;
+            g_sListFile += ".lst";
+            g_bSelected = true;
+            break;
+        case amFile:
+            g_sListFile = psName;
+            g_bSelected = true;
+            break;
+        default:
+            g_bSelected = false;
+            break;
+        }
     }
 
 // Enable collection of annotation data
@@ -168,8 +175,6 @@ void AL_AddLine (AL_Type at, int posn, int addr, int caddr)
             {
             if ( g_pSource[posn - 1] == '\r' ) break;
             --posn;
-            // Exit if not at beginning of line
-            // if ( g_pSource[posn] > ' ' ) return;
             }
         // Add it
         g_alobj->AddLine (at, posn, addr, caddr);
@@ -186,11 +191,18 @@ void AL_SetType (AL_Type at, int addr)
     }
 
 // Save Code Symbols
-void AL_Symbol (AL_Type at, int posn, const char *psSymbol, int addr, int caddr)
+void AL_Routine (int posn)
     {
     if ( ( g_bEnable ) && ( g_alobj != NULL ) )
         {
-        g_alobj->AddSymbol (at, psSymbol);
+        // Find beginning of line
+        while (posn > 0)
+            {
+            if ( g_pSource[posn - 1] == '\r' ) break;
+            --posn;
+            }
+        // Add it
+        g_alobj->AddRoutine (posn);
         }
     }
 
@@ -240,7 +252,6 @@ void AL_CopyFromHeap (int nHeap, int nIndex)
     if ( g_bEnable )
         {
         g_objs[nIndex] = g_alheap[nHeap];
-        // g_alobj->Include (g_alheap[nHeap], nOffset);
         }
     }
 
@@ -258,7 +269,20 @@ void AL_Output (const unsigned char *pBinary, int nSize, const struct CompilerDa
     {
     if ( g_bEnable )
         {
-        g_alobj->Output (pBinary, nSize, pcd);
+        if ( g_sListFile == "-" )
+            {
+            g_pfilList = stdout;
+            g_alobj->Output (pBinary, nSize, pcd);
+            }
+        else
+            {
+            g_pfilList = fopen (g_sListFile.c_str (), "w");
+            if ( g_pfilList != NULL )
+                {
+                g_alobj->Output (pBinary, nSize, pcd);
+                fclose (g_pfilList);
+                }
+            }
         }
     }
 
@@ -324,7 +348,7 @@ static bool AL_LoadSource (const AL_Object *pobj)
     if (bResult)
         {
         g_pobjFile = pobj;
-        printf ("                       File \"%s\"\n", pobj->File ()->c_str ());
+        fprintf (g_pfilList, "                       File \"%s\"\n", pobj->File ()->c_str ());
         }
     return bResult;
     }
@@ -334,10 +358,10 @@ static void AL_Print (int iCh)
     {
     while ((g_pFileSrc[iCh] != '\r') && (g_pFileSrc[iCh] != '\0'))
         {
-        printf ("%c", g_pFileSrc[iCh]);
+        fprintf (g_pfilList, "%c", g_pFileSrc[iCh]);
         ++iCh;
         }
-    printf ("\n");
+    fprintf (g_pfilList, "\n");
     }
 
 // Get a little-endian word from a byte array
@@ -394,13 +418,13 @@ unsigned int AL_Address (const unsigned char *pdata, bool &bWord)
         {
         ll = bl;
         ll = ( ll << 8 ) | pdata[1];
-        printf (" %02X %02X", bl, pdata[1]);
+        fprintf (g_pfilList, " %02X %02X", bl, pdata[1]);
         if ( ! (bl & 0x40) ) ll &= 0x3FFF;
         bWord = true;
         }
     else
         {
-        printf (" %02X", bl);
+        fprintf (g_pfilList, " %02X", bl);
         ll = bl;
         if ( bl & 0x40 ) ll |= 0xFF30;
         bWord = false;
@@ -492,170 +516,170 @@ static void AL_ByteCode (const unsigned char *pBinary, int addr, int addrNext)
             {"Push_Word_Lit", ByteCode::op_Word_Literal},	// 39
             {"Push_Mid_Lit", ByteCode::op_Near_Long_Literal},	// 3A
             {"Push_Long_Lit", ByteCode::op_Long_Literal},	// 3B
-            {"Unknown Op $3c", ByteCode::op_None},	// 3C
+            {"Unused_Op_$3C", ByteCode::op_None},	// 3C
             {"Indexed_Mem_Op", ByteCode::op_Memory_Opcode},	// 3D
             {"Indexed_Range_Mem_Op", ByteCode::op_Memory_Opcode},	// 3E
             {"Memory_Op", ByteCode::op_Memory_Opcode},	// 3F
-            {"Push_Varmem_Long_0", ByteCode::op_None},	// 40
-            {"Pop_Varmem_Long_0", ByteCode::op_None},	// 41
-            {"Effect_Varmem_Long_0", ByteCode::op_Effect},	// 42
-            {"Reference_Varmem_Long_0", ByteCode::op_None},	// 43
-            {"Push_Varmem_Long_1", ByteCode::op_None},	// 44
-            {"Pop_Varmem_Long_1", ByteCode::op_None},	// 45
-            {"Effect_Varmem_Long_1", ByteCode::op_Effect},	// 46
-            {"Reference_Varmem_Long_1", ByteCode::op_None},	// 47
-            {"Push_Varmem_Long_2", ByteCode::op_None},	// 48
-            {"Pop_Varmem_Long_2", ByteCode::op_None},	// 49
-            {"Effect_Varmem_Long_2", ByteCode::op_Effect},	// 4A
-            {"Reference_Varmem_Long_2", ByteCode::op_None},	// 4B
-            {"Push_Varmem_Long_3", ByteCode::op_None},	// 4C
-            {"Pop_Varmem_Long_3", ByteCode::op_None},	// 4D
-            {"Effect_Varmem_Long_3", ByteCode::op_Effect},	// 4E
-            {"Reference_Varmem_Long_3", ByteCode::op_None},	// 4F
-            {"Push_Varmem_Long_4", ByteCode::op_None},	// 50
-            {"Pop_Varmem_Long_4", ByteCode::op_None},	// 51
-            {"Effect_Varmem_Long_4", ByteCode::op_Effect},	// 52
-            {"Reference_Varmem_Long_4", ByteCode::op_None},	// 53
-            {"Push_Varmem_Long_5", ByteCode::op_None},	// 54
-            {"Pop_Varmem_Long_5", ByteCode::op_None},	// 55
-            {"Effect_Varmem_Long_5", ByteCode::op_Effect},	// 56
-            {"Reference_Varmem_Long_5", ByteCode::op_None},	// 57
-            {"Push_Varmem_Long_6", ByteCode::op_None},	// 58
-            {"Pop_Varmem_Long_6", ByteCode::op_None},	// 59
-            {"Effect_Varmem_Long_6", ByteCode::op_Effect},	// 5A
-            {"Reference_Varmem_Long_6", ByteCode::op_None},	// 5B
-            {"Push_Varmem_Long_7", ByteCode::op_None},	// 5C
-            {"Pop_Varmem_Long_7", ByteCode::op_None},	// 5D
-            {"Effect_Varmem_Long_7", ByteCode::op_Effect},	// 5E
-            {"Reference_Varmem_Long_7", ByteCode::op_None},	// 5F
-            {"Push_Localmem_Long_0", ByteCode::op_None},	// 60
-            {"Pop_Localmem_Long_0", ByteCode::op_None},	// 61
-            {"Effect_Localmem_Long_0", ByteCode::op_Effect},	// 62
-            {"Reference_Localmem_Long_0", ByteCode::op_None},	// 63
-            {"Push_Localmem_Long_1", ByteCode::op_None},	// 64
-            {"Pop_Localmem_Long_1", ByteCode::op_None},	// 65
-            {"Effect_Localmem_Long_1", ByteCode::op_Effect},	// 66
-            {"Reference_Localmem_Long_1", ByteCode::op_None},	// 67
-            {"Push_Localmem_Long_2", ByteCode::op_None},	// 68
-            {"Pop_Localmem_Long_2", ByteCode::op_None},	// 69
-            {"Effect_Localmem_Long_2", ByteCode::op_Effect},	// 6A
-            {"Reference_Localmem_Long_2", ByteCode::op_None},	// 6B
-            {"Push_Localmem_Long_3", ByteCode::op_None},	// 6C
-            {"Pop_Localmem_Long_3", ByteCode::op_None},	// 6D
-            {"Effect_Localmem_Long_3", ByteCode::op_Effect},	// 6E
-            {"Reference_Localmem_Long_3", ByteCode::op_None},	// 6F
-            {"Push_Localmem_Long_4", ByteCode::op_None},	// 70
-            {"Pop_Localmem_Long_4", ByteCode::op_None},	// 71
-            {"Effect_Localmem_Long_4", ByteCode::op_Effect},	// 72
-            {"Reference_Localmem_Long_4", ByteCode::op_None},	// 73
-            {"Push_Localmem_Long_5", ByteCode::op_None},	// 74
-            {"Pop_Localmem_Long_5", ByteCode::op_None},	// 75
-            {"Effect_Localmem_Long_5", ByteCode::op_Effect},	// 76
-            {"Reference_Localmem_Long_5", ByteCode::op_None},	// 77
-            {"Push_Localmem_Long_6", ByteCode::op_None},	// 78
-            {"Pop_Localmem_Long_6", ByteCode::op_None},	// 79
-            {"Effect_Localmem_Long_6", ByteCode::op_Effect},	// 7A
-            {"Reference_Localmem_Long_6", ByteCode::op_None},	// 7B
-            {"Push_Localmem_Long_7", ByteCode::op_None},	// 7C
-            {"Pop_Localmem_Long_7", ByteCode::op_None},	// 7D
-            {"Effect_Localmem_Long_7", ByteCode::op_Effect},	// 7E
-            {"Reference_Localmem_Long_7", ByteCode::op_None},	// 7F
-            {"Push_Mainmem_Byte", ByteCode::op_None},	// 80
-            {"Pop_Mainmem_Byte", ByteCode::op_None},	// 81
-            {"Effect_Mainmem_Byte", ByteCode::op_Effect},	// 82
-            {"Reference_Mainmem_Byte", ByteCode::op_None},	// 83
-            {"Push_Objectmem_Byte", ByteCode::op_Unsigned_Offset},	// 84
-            {"Pop_Objectmem_Byte", ByteCode::op_Unsigned_Offset},	// 85
-            {"Effect_Objectmem_Byte", ByteCode::op_Unsigned_Effected_Offset},	// 86
-            {"Reference_Objectmem_Byte", ByteCode::op_Unsigned_Offset},	// 87
-            {"Push_Variablemem_Byte", ByteCode::op_Unsigned_Offset},	// 88
-            {"Pop_Variablemem_Byte", ByteCode::op_Unsigned_Offset},	// 89
-            {"Effect_Variablemem_Byte", ByteCode::op_Unsigned_Effected_Offset},	// 8A
-            {"Reference_Variablemem_Byte", ByteCode::op_Unsigned_Offset},	// 8B
-            {"Push_Localmem_Byte", ByteCode::op_Unsigned_Offset},	// 8C
-            {"Pop_Localmem_Byte", ByteCode::op_Unsigned_Offset},	// 8D
-            {"Effect_Localmem_Byte", ByteCode::op_Unsigned_Effected_Offset},	// 8E
-            {"Reference_Localmem_Byte", ByteCode::op_Unsigned_Offset},	// 8F
-            {"Push_Indexed_Mainmem_Byte", ByteCode::op_None},	// 90
-            {"Pop_Indexed_Mainmem_Byte", ByteCode::op_None},	// 91
-            {"Effect_Indexed_Mainmem_Byte", ByteCode::op_Effect},	// 92
-            {"Reference_Indexed_Mainmem_Byte", ByteCode::op_None},	// 93
-            {"Push_Indexed_Objectmem_Byte", ByteCode::op_Unsigned_Offset},	// 94
-            {"Pop_Indexed_Objectmem_Byte", ByteCode::op_Unsigned_Offset},	// 95
-            {"Effect_Indexed_Objectmem_Byte", ByteCode::op_Unsigned_Effected_Offset},	// 96
-            {"Reference_Indexed_Objectmem_Byte", ByteCode::op_Unsigned_Offset},	// 97
-            {"Push_Indexed_Variablemem_Byte", ByteCode::op_Unsigned_Offset},	// 98
-            {"Pop_Indexed_Variablemem_Byte", ByteCode::op_Unsigned_Offset},	// 99
-            {"Effect_Indexed_Variablemem_Byte", ByteCode::op_Unsigned_Effected_Offset},	// 9A
-            {"Reference_Indexed_Variablemem_Byte", ByteCode::op_Unsigned_Offset},	// 9B
-            {"Push_Indexed_Localmem_Byte", ByteCode::op_Unsigned_Offset},	// 9C
-            {"Pop_Indexed_Localmem_Byte", ByteCode::op_Unsigned_Offset},	// 9D
-            {"Effect_Indexed_Localmem_Byte", ByteCode::op_Unsigned_Effected_Offset},	// 9E
-            {"Reference_Indexed_Localmem_Byte", ByteCode::op_Unsigned_Offset},	// 9F
-            {"Push_Mainmem_Word", ByteCode::op_None},	// A0
-            {"Pop_Mainmem_Word", ByteCode::op_None},	// A1
-            {"Effect_Mainmem_Word", ByteCode::op_Effect},	// A2
-            {"Reference_Mainmem_Word", ByteCode::op_None},	// A3
-            {"Push_Objectmem_Word", ByteCode::op_Unsigned_Offset},	// A4
-            {"Pop_Objectmem_Word", ByteCode::op_Unsigned_Offset},	// A5
-            {"Effect_Objectmem_Word", ByteCode::op_Unsigned_Effected_Offset},	// A6
-            {"Reference_Objectmem_Word", ByteCode::op_Unsigned_Offset},	// A7
-            {"Push_Variablemem_Word", ByteCode::op_Unsigned_Offset},	// A8
-            {"Pop_Variablemem_Word", ByteCode::op_Unsigned_Offset},	// A9
-            {"Effect_Variablemem_Word", ByteCode::op_Unsigned_Effected_Offset},	// AA
-            {"Reference_Variablemem_Word", ByteCode::op_Unsigned_Offset},	// AB
-            {"Push_Localmem_Word", ByteCode::op_Unsigned_Offset},	// AC
-            {"Pop_Localmem_Word", ByteCode::op_Unsigned_Offset},	// AD
-            {"Effect_Localmem_Word", ByteCode::op_Unsigned_Effected_Offset},	// AE
-            {"Reference_Localmem_Word", ByteCode::op_Unsigned_Offset},	// AF
-            {"Push_Indexed_Mainmem_Word", ByteCode::op_None},	// B0
-            {"Pop_Indexed_Mainmem_Word", ByteCode::op_None},	// B1
-            {"Effect_Indexed_Mainmem_Word", ByteCode::op_Effect},	// B2
-            {"Reference_Indexed_Mainmem_Word", ByteCode::op_None},	// B3
-            {"Push_Indexed_Objectmem_Word", ByteCode::op_Unsigned_Offset},	// B4
-            {"Pop_Indexed_Objectmem_Word", ByteCode::op_Unsigned_Offset},	// B5
-            {"Effect_Indexed_Objectmem_Word", ByteCode::op_Unsigned_Effected_Offset},	// B6
-            {"Reference_Indexed_Objectmem_Word", ByteCode::op_Unsigned_Offset},	// B7
-            {"Push_Indexed_Variablemem_Word", ByteCode::op_Unsigned_Offset},	// B8
-            {"Pop_Indexed_Variablemem_Word", ByteCode::op_Unsigned_Offset},	// B9
-            {"Effect_Indexed_Variablemem_Word", ByteCode::op_Unsigned_Effected_Offset},	// BA
-            {"Reference_Indexed_Variablemem_Word", ByteCode::op_Unsigned_Offset},	// BB
-            {"Push_Indexed_Localmem_Word", ByteCode::op_Unsigned_Offset},	// BC
-            {"Pop_Indexed_Localmem_Word", ByteCode::op_Unsigned_Offset},	// BD
-            {"Effect_Indexed_Localmem_Word", ByteCode::op_Unsigned_Effected_Offset},	// BE
-            {"Reference_Indexed_Localmem_Word", ByteCode::op_Unsigned_Offset},	// BF
-            {"Push_Mainmem_Long", ByteCode::op_None},	// C0
-            {"Pop_Mainmem_Long", ByteCode::op_None},	// C1
-            {"Effect_Mainmem_Long", ByteCode::op_Effect},	// C2
-            {"Reference_Mainmem_Long", ByteCode::op_None},	// C3
-            {"Push_Objectmem_Long", ByteCode::op_Unsigned_Offset},	// C4
-            {"Pop_Objectmem_Long", ByteCode::op_Unsigned_Offset},	// C5
-            {"Effect_Objectmem_Long", ByteCode::op_Unsigned_Effected_Offset},	// C6
-            {"Reference_Objectmem_Long", ByteCode::op_Unsigned_Offset},	// C7
-            {"Push_Variablemem_Long", ByteCode::op_Unsigned_Offset},	// C8
-            {"Pop_Variablemem_Long", ByteCode::op_Unsigned_Offset},	// C9
-            {"Effect_Variablemem_Long", ByteCode::op_Unsigned_Effected_Offset},	// CA
-            {"Reference_Variablemem_Long", ByteCode::op_Unsigned_Offset},	// CB
-            {"Push_Localmem_Long", ByteCode::op_Unsigned_Offset},	// CC
-            {"Pop_Localmem_Long", ByteCode::op_Unsigned_Offset},	// CD
-            {"Effect_Localmem_Long", ByteCode::op_Unsigned_Effected_Offset},	// CE
-            {"Reference_Localmem_Long", ByteCode::op_Unsigned_Offset},	// CF
-            {"Push_Indexed_Mainmem_Long", ByteCode::op_None},	// D0
-            {"Pop_Indexed_Mainmem_Long", ByteCode::op_None},	// D1
-            {"Effect_Indexed_Mainmem_Long", ByteCode::op_Effect},	// D2
-            {"Reference_Indexed_Mainmem_Long", ByteCode::op_None},	// D3
-            {"Push_Indexed_Objectmem_Long", ByteCode::op_Unsigned_Offset},	// D4
-            {"Pop_Indexed_Objectmem_Long", ByteCode::op_Unsigned_Offset},	// D5
-            {"Effect_Indexed_Objectmem_Long", ByteCode::op_Unsigned_Effected_Offset},	// D6
-            {"Reference_Indexed_Objectmem_Long", ByteCode::op_Unsigned_Offset},	// D7
-            {"Push_Indexed_Variablemem_Long", ByteCode::op_Unsigned_Offset},	// D8
-            {"Pop_Indexed_Variablemem_Long", ByteCode::op_Unsigned_Offset},	// D9
-            {"Effect_Indexed_Variablemem_Long", ByteCode::op_Unsigned_Effected_Offset},	// DA
-            {"Reference_Indexed_Variablemem_Long", ByteCode::op_Unsigned_Offset},	// DB
-            {"Push_Indexed_Localmem_Long", ByteCode::op_Unsigned_Offset},	// DC
-            {"Pop_Indexed_Localmem_Long", ByteCode::op_Unsigned_Offset},	// DD
-            {"Effect_Indexed_Localmem_Long", ByteCode::op_Unsigned_Effected_Offset},	// DE
-            {"Reference_Indexed_Localmem_Long", ByteCode::op_Unsigned_Offset},	// DF
+            {"Push_VariableMem_Long_0", ByteCode::op_None},	// 40
+            {"Pop_VariableMem_Long_0", ByteCode::op_None},	// 41
+            {"Effect_VariableMem_Long_0", ByteCode::op_Effect},	// 42
+            {"Reference_VariableMem_Long_0", ByteCode::op_None},	// 43
+            {"Push_VariableMem_Long_1", ByteCode::op_None},	// 44
+            {"Pop_VariableMem_Long_1", ByteCode::op_None},	// 45
+            {"Effect_VariableMem_Long_1", ByteCode::op_Effect},	// 46
+            {"Reference_VariableMem_Long_1", ByteCode::op_None},	// 47
+            {"Push_VariableMem_Long_2", ByteCode::op_None},	// 48
+            {"Pop_VariableMem_Long_2", ByteCode::op_None},	// 49
+            {"Effect_VariableMem_Long_2", ByteCode::op_Effect},	// 4A
+            {"Reference_VariableMem_Long_2", ByteCode::op_None},	// 4B
+            {"Push_VariableMem_Long_3", ByteCode::op_None},	// 4C
+            {"Pop_VariableMem_Long_3", ByteCode::op_None},	// 4D
+            {"Effect_VariableMem_Long_3", ByteCode::op_Effect},	// 4E
+            {"Reference_VariableMem_Long_3", ByteCode::op_None},	// 4F
+            {"Push_VariableMem_Long_4", ByteCode::op_None},	// 50
+            {"Pop_VariableMem_Long_4", ByteCode::op_None},	// 51
+            {"Effect_VariableMem_Long_4", ByteCode::op_Effect},	// 52
+            {"Reference_VariableMem_Long_4", ByteCode::op_None},	// 53
+            {"Push_VariableMem_Long_5", ByteCode::op_None},	// 54
+            {"Pop_VariableMem_Long_5", ByteCode::op_None},	// 55
+            {"Effect_VariableMem_Long_5", ByteCode::op_Effect},	// 56
+            {"Reference_VariableMem_Long_5", ByteCode::op_None},	// 57
+            {"Push_VariableMem_Long_6", ByteCode::op_None},	// 58
+            {"Pop_VariableMem_Long_6", ByteCode::op_None},	// 59
+            {"Effect_VariableMem_Long_6", ByteCode::op_Effect},	// 5A
+            {"Reference_VariableMem_Long_6", ByteCode::op_None},	// 5B
+            {"Push_VariableMem_Long_7", ByteCode::op_None},	// 5C
+            {"Pop_VariableMem_Long_7", ByteCode::op_None},	// 5D
+            {"Effect_VariableMem_Long_7", ByteCode::op_Effect},	// 5E
+            {"Reference_VariableMem_Long_7", ByteCode::op_None},	// 5F
+            {"Push_LocalMem_Long_0", ByteCode::op_None},	// 60
+            {"Pop_LocalMem_Long_0", ByteCode::op_None},	// 61
+            {"Effect_LocalMem_Long_0", ByteCode::op_Effect},	// 62
+            {"Reference_LocalMem_Long_0", ByteCode::op_None},	// 63
+            {"Push_LocalMem_Long_1", ByteCode::op_None},	// 64
+            {"Pop_LocalMem_Long_1", ByteCode::op_None},	// 65
+            {"Effect_LocalMem_Long_1", ByteCode::op_Effect},	// 66
+            {"Reference_LocalMem_Long_1", ByteCode::op_None},	// 67
+            {"Push_LocalMem_Long_2", ByteCode::op_None},	// 68
+            {"Pop_LocalMem_Long_2", ByteCode::op_None},	// 69
+            {"Effect_LocalMem_Long_2", ByteCode::op_Effect},	// 6A
+            {"Reference_LocalMem_Long_2", ByteCode::op_None},	// 6B
+            {"Push_LocalMem_Long_3", ByteCode::op_None},	// 6C
+            {"Pop_LocalMem_Long_3", ByteCode::op_None},	// 6D
+            {"Effect_LocalMem_Long_3", ByteCode::op_Effect},	// 6E
+            {"Reference_LocalMem_Long_3", ByteCode::op_None},	// 6F
+            {"Push_LocalMem_Long_4", ByteCode::op_None},	// 70
+            {"Pop_LocalMem_Long_4", ByteCode::op_None},	// 71
+            {"Effect_LocalMem_Long_4", ByteCode::op_Effect},	// 72
+            {"Reference_LocalMem_Long_4", ByteCode::op_None},	// 73
+            {"Push_LocalMem_Long_5", ByteCode::op_None},	// 74
+            {"Pop_LocalMem_Long_5", ByteCode::op_None},	// 75
+            {"Effect_LocalMem_Long_5", ByteCode::op_Effect},	// 76
+            {"Reference_LocalMem_Long_5", ByteCode::op_None},	// 77
+            {"Push_LocalMem_Long_6", ByteCode::op_None},	// 78
+            {"Pop_LocalMem_Long_6", ByteCode::op_None},	// 79
+            {"Effect_LocalMem_Long_6", ByteCode::op_Effect},	// 7A
+            {"Reference_LocalMem_Long_6", ByteCode::op_None},	// 7B
+            {"Push_LocalMem_Long_7", ByteCode::op_None},	// 7C
+            {"Pop_LocalMem_Long_7", ByteCode::op_None},	// 7D
+            {"Effect_LocalMem_Long_7", ByteCode::op_Effect},	// 7E
+            {"Reference_LocalMem_Long_7", ByteCode::op_None},	// 7F
+            {"Push_MainMem_Byte", ByteCode::op_None},	// 80
+            {"Pop_MainMem_Byte", ByteCode::op_None},	// 81
+            {"Effect_MainMem_Byte", ByteCode::op_Effect},	// 82
+            {"Reference_MainMem_Byte", ByteCode::op_None},	// 83
+            {"Push_ObjectMem_Byte", ByteCode::op_Unsigned_Offset},	// 84
+            {"Pop_ObjectMem_Byte", ByteCode::op_Unsigned_Offset},	// 85
+            {"Effect_ObjectMem_Byte", ByteCode::op_Unsigned_Effected_Offset},	// 86
+            {"Reference_ObjectMem_Byte", ByteCode::op_Unsigned_Offset},	// 87
+            {"Push_VariableMem_Byte", ByteCode::op_Unsigned_Offset},	// 88
+            {"Pop_VariableMem_Byte", ByteCode::op_Unsigned_Offset},	// 89
+            {"Effect_VariableMem_Byte", ByteCode::op_Unsigned_Effected_Offset},	// 8A
+            {"Reference_VariableMem_Byte", ByteCode::op_Unsigned_Offset},	// 8B
+            {"Push_LocalMem_Byte", ByteCode::op_Unsigned_Offset},	// 8C
+            {"Pop_LocalMem_Byte", ByteCode::op_Unsigned_Offset},	// 8D
+            {"Effect_LocalMem_Byte", ByteCode::op_Unsigned_Effected_Offset},	// 8E
+            {"Reference_LocalMem_Byte", ByteCode::op_Unsigned_Offset},	// 8F
+            {"Push_Indexed_MainMem_Byte", ByteCode::op_None},	// 90
+            {"Pop_Indexed_MainMem_Byte", ByteCode::op_None},	// 91
+            {"Effect_Indexed_MainMem_Byte", ByteCode::op_Effect},	// 92
+            {"Reference_Indexed_MainMem_Byte", ByteCode::op_None},	// 93
+            {"Push_Indexed_ObjectMem_Byte", ByteCode::op_Unsigned_Offset},	// 94
+            {"Pop_Indexed_ObjectMem_Byte", ByteCode::op_Unsigned_Offset},	// 95
+            {"Effect_Indexed_ObjectMem_Byte", ByteCode::op_Unsigned_Effected_Offset},	// 96
+            {"Reference_Indexed_ObjectMem_Byte", ByteCode::op_Unsigned_Offset},	// 97
+            {"Push_Indexed_VariableMem_Byte", ByteCode::op_Unsigned_Offset},	// 98
+            {"Pop_Indexed_VariableMem_Byte", ByteCode::op_Unsigned_Offset},	// 99
+            {"Effect_Indexed_VariableMem_Byte", ByteCode::op_Unsigned_Effected_Offset},	// 9A
+            {"Reference_Indexed_VariableMem_Byte", ByteCode::op_Unsigned_Offset},	// 9B
+            {"Push_Indexed_LocalMem_Byte", ByteCode::op_Unsigned_Offset},	// 9C
+            {"Pop_Indexed_LocalMem_Byte", ByteCode::op_Unsigned_Offset},	// 9D
+            {"Effect_Indexed_LocalMem_Byte", ByteCode::op_Unsigned_Effected_Offset},	// 9E
+            {"Reference_Indexed_LocalMem_Byte", ByteCode::op_Unsigned_Offset},	// 9F
+            {"Push_MainMem_Word", ByteCode::op_None},	// A0
+            {"Pop_MainMem_Word", ByteCode::op_None},	// A1
+            {"Effect_MainMem_Word", ByteCode::op_Effect},	// A2
+            {"Reference_MainMem_Word", ByteCode::op_None},	// A3
+            {"Push_ObjectMem_Word", ByteCode::op_Unsigned_Offset},	// A4
+            {"Pop_ObjectMem_Word", ByteCode::op_Unsigned_Offset},	// A5
+            {"Effect_ObjectMem_Word", ByteCode::op_Unsigned_Effected_Offset},	// A6
+            {"Reference_ObjectMem_Word", ByteCode::op_Unsigned_Offset},	// A7
+            {"Push_VariableMem_Word", ByteCode::op_Unsigned_Offset},	// A8
+            {"Pop_VariableMem_Word", ByteCode::op_Unsigned_Offset},	// A9
+            {"Effect_VariableMem_Word", ByteCode::op_Unsigned_Effected_Offset},	// AA
+            {"Reference_VariableMem_Word", ByteCode::op_Unsigned_Offset},	// AB
+            {"Push_LocalMem_Word", ByteCode::op_Unsigned_Offset},	// AC
+            {"Pop_LocalMem_Word", ByteCode::op_Unsigned_Offset},	// AD
+            {"Effect_LocalMem_Word", ByteCode::op_Unsigned_Effected_Offset},	// AE
+            {"Reference_LocalMem_Word", ByteCode::op_Unsigned_Offset},	// AF
+            {"Push_Indexed_MainMem_Word", ByteCode::op_None},	// B0
+            {"Pop_Indexed_MainMem_Word", ByteCode::op_None},	// B1
+            {"Effect_Indexed_MainMem_Word", ByteCode::op_Effect},	// B2
+            {"Reference_Indexed_MainMem_Word", ByteCode::op_None},	// B3
+            {"Push_Indexed_ObjectMem_Word", ByteCode::op_Unsigned_Offset},	// B4
+            {"Pop_Indexed_ObjectMem_Word", ByteCode::op_Unsigned_Offset},	// B5
+            {"Effect_Indexed_ObjectMem_Word", ByteCode::op_Unsigned_Effected_Offset},	// B6
+            {"Reference_Indexed_ObjectMem_Word", ByteCode::op_Unsigned_Offset},	// B7
+            {"Push_Indexed_VariableMem_Word", ByteCode::op_Unsigned_Offset},	// B8
+            {"Pop_Indexed_VariableMem_Word", ByteCode::op_Unsigned_Offset},	// B9
+            {"Effect_Indexed_VariableMem_Word", ByteCode::op_Unsigned_Effected_Offset},	// BA
+            {"Reference_Indexed_VariableMem_Word", ByteCode::op_Unsigned_Offset},	// BB
+            {"Push_Indexed_LocalMem_Word", ByteCode::op_Unsigned_Offset},	// BC
+            {"Pop_Indexed_LocalMem_Word", ByteCode::op_Unsigned_Offset},	// BD
+            {"Effect_Indexed_LocalMem_Word", ByteCode::op_Unsigned_Effected_Offset},	// BE
+            {"Reference_Indexed_LocalMem_Word", ByteCode::op_Unsigned_Offset},	// BF
+            {"Push_MainMem_Long", ByteCode::op_None},	// C0
+            {"Pop_MainMem_Long", ByteCode::op_None},	// C1
+            {"Effect_MainMem_Long", ByteCode::op_Effect},	// C2
+            {"Reference_MainMem_Long", ByteCode::op_None},	// C3
+            {"Push_ObjectMem_Long", ByteCode::op_Unsigned_Offset},	// C4
+            {"Pop_ObjectMem_Long", ByteCode::op_Unsigned_Offset},	// C5
+            {"Effect_ObjectMem_Long", ByteCode::op_Unsigned_Effected_Offset},	// C6
+            {"Reference_ObjectMem_Long", ByteCode::op_Unsigned_Offset},	// C7
+            {"Push_VariableMem_Long", ByteCode::op_Unsigned_Offset},	// C8
+            {"Pop_VariableMem_Long", ByteCode::op_Unsigned_Offset},	// C9
+            {"Effect_VariableMem_Long", ByteCode::op_Unsigned_Effected_Offset},	// CA
+            {"Reference_VariableMem_Long", ByteCode::op_Unsigned_Offset},	// CB
+            {"Push_LocalMem_Long", ByteCode::op_Unsigned_Offset},	// CC
+            {"Pop_LocalMem_Long", ByteCode::op_Unsigned_Offset},	// CD
+            {"Effect_LocalMem_Long", ByteCode::op_Unsigned_Effected_Offset},	// CE
+            {"Reference_LocalMem_Long", ByteCode::op_Unsigned_Offset},	// CF
+            {"Push_Indexed_MainMem_Long", ByteCode::op_None},	// D0
+            {"Pop_Indexed_MainMem_Long", ByteCode::op_None},	// D1
+            {"Effect_Indexed_MainMem_Long", ByteCode::op_Effect},	// D2
+            {"Reference_Indexed_MainMem_Long", ByteCode::op_None},	// D3
+            {"Push_Indexed_ObjectMem_Long", ByteCode::op_Unsigned_Offset},	// D4
+            {"Pop_Indexed_ObjectMem_Long", ByteCode::op_Unsigned_Offset},	// D5
+            {"Effect_Indexed_ObjectMem_Long", ByteCode::op_Unsigned_Effected_Offset},	// D6
+            {"Reference_Indexed_ObjectMem_Long", ByteCode::op_Unsigned_Offset},	// D7
+            {"Push_Indexed_VariableMem_Long", ByteCode::op_Unsigned_Offset},	// D8
+            {"Pop_Indexed_VariableMem_Long", ByteCode::op_Unsigned_Offset},	// D9
+            {"Effect_Indexed_VariableMem_Long", ByteCode::op_Unsigned_Effected_Offset},	// DA
+            {"Reference_Indexed_VariableMem_Long", ByteCode::op_Unsigned_Offset},	// DB
+            {"Push_Indexed_LocalMem_Long", ByteCode::op_Unsigned_Offset},	// DC
+            {"Pop_Indexed_LocalMem_Long", ByteCode::op_Unsigned_Offset},	// DD
+            {"Effect_Indexed_LocalMem_Long", ByteCode::op_Unsigned_Effected_Offset},	// DE
+            {"Reference_Indexed_LocalMem_Long", ByteCode::op_Unsigned_Offset},	// DF
             {"Rotate_Right", ByteCode::op_None},	// E0
             {"Rotate_Left", ByteCode::op_None},	// E1
             {"Shift_Right", ByteCode::op_None},	// E2
@@ -689,10 +713,11 @@ static void AL_ByteCode (const unsigned char *pBinary, int addr, int addrNext)
             {"Greater_Equal", ByteCode::op_None},	// FE
             {"Logical_Not", ByteCode::op_None}	// FF
         };
+
     while (addr < addrNext )
         {
         unsigned char bc = pBinary[addr];
-        printf ("%04X     %02X", addr, bc);
+        fprintf (g_pfilList, "%04X     %02X", addr, bc);
         std::string sArgs = "";
         int nCol = 11;
         char sAddr[12];
@@ -706,13 +731,13 @@ static void AL_ByteCode (const unsigned char *pBinary, int addr, int addrNext)
             case ByteCode::op_Obj_Call_Pair:
                 ll = AL_BWord (&pBinary[++addr]);
                 addr += 2;
-                printf (" %04X", ll);
+                fprintf (g_pfilList, " %04X", ll);
                 nCol += 5;
                 sprintf (sAddr, ", $%04X", ll);
                 sArgs += sAddr;
                 ll = AL_BWord (&pBinary[++addr]);
                 ++addr;
-                printf (" %04X", ll);
+                fprintf (g_pfilList, " %04X", ll);
                 nCol += 5;
                 sprintf (sAddr, ", $%04X", ll);
                 sArgs += sAddr;
@@ -722,14 +747,14 @@ static void AL_ByteCode (const unsigned char *pBinary, int addr, int addrNext)
                 ll = 2 << ( bl & 0x1F );
                 if ( bl & 0x20 ) --ll;
                 if ( bl & 0x40 ) ll = ~ll;
-                printf (" %02X", bl);
+                fprintf (g_pfilList, " %02X", bl);
                 nCol += 3;
                 sprintf (sAddr, ", $%08X", ll);
                 sArgs += sAddr;
                 break;
             case ByteCode::op_Byte_Literal:
                 bl = pBinary[++addr];
-                printf (" %02X", bl);
+                fprintf (g_pfilList, " %02X", bl);
                 nCol += 3;
                 sprintf (sAddr, ", $%02X", bl);
                 sArgs += sAddr;
@@ -737,7 +762,7 @@ static void AL_ByteCode (const unsigned char *pBinary, int addr, int addrNext)
             case ByteCode::op_Word_Literal:
                 ll = AL_BWord (&pBinary[++addr]);
                 ++addr;
-                printf (" %04X", ll);
+                fprintf (g_pfilList, " %04X", ll);
                 nCol += 5;
                 sprintf (sAddr, ", $%04X", ll);
                 sArgs += sAddr;
@@ -745,7 +770,7 @@ static void AL_ByteCode (const unsigned char *pBinary, int addr, int addrNext)
             case ByteCode::op_Near_Long_Literal:
                 ll = AL_BInt24 (&pBinary[++addr]);
                 addr += 2;
-                printf (" %06X", ll);
+                fprintf (g_pfilList, " %06X", ll);
                 nCol += 7;
                 sprintf (sAddr, ", $%06X", ll);
                 sArgs += sAddr;
@@ -753,7 +778,7 @@ static void AL_ByteCode (const unsigned char *pBinary, int addr, int addrNext)
             case ByteCode::op_Long_Literal:
                 ll = AL_BLong (&pBinary[++addr]);
                 addr += 3;
-                printf (" %08X", ll);
+                fprintf (g_pfilList, " %08X", ll);
                 nCol += 9;
                 sprintf (sAddr, ", $%08X", ll);
                 sArgs += sAddr;
@@ -779,16 +804,17 @@ static void AL_ByteCode (const unsigned char *pBinary, int addr, int addrNext)
                     nCol += 3;
                     }
                 nCol += 3;
-                sprintf (sAddr, ", $%04X, ", ll);
+                sprintf (sAddr, ", $%04X", ll);
                 sArgs += sAddr;
                 // Deliberately falls through to next case
             case ByteCode::op_Effect:
                 bl = pBinary[++addr];
-                printf (" %02X", bl);
+                fprintf (g_pfilList, " %02X", bl);
                 nCol += 3;
                 if ( bl & 0x40 )
                     {
-                    sArgs += ", math";
+                    sArgs += ", ";
+                    sArgs += codes[(bl & 0x1F) + 0xE0].psName;
                     if ( ! (bl & 0x20) ) sArgs += ", swap";
                     }
                 else if ( bl & 0x20 )
@@ -846,10 +872,10 @@ static void AL_ByteCode (const unsigned char *pBinary, int addr, int addrNext)
             }
         while (nCol < 22)
             {
-            printf (" ");
+            fprintf (g_pfilList, " ");
             ++nCol;
             }
-        printf (" ; %s%s\n", codes[bc].psName, sArgs.c_str ());
+        fprintf (g_pfilList, " ; %s%s\n", codes[bc].psName, sArgs.c_str ());
         ++addr;
         }
     }
@@ -865,9 +891,9 @@ static void AL_Dump (const unsigned char *pBinary, AL_Type at, int addr, int add
     if ( addr < addrNext )
         {
         if ((caddr >= 0) && (caddr < 0x800) && ((caddr & 0x03) == 0))
-            printf ("%04X %03X", addr, caddr >> 2);
+            fprintf (g_pfilList, "%04X %03X", addr, caddr >> 2);
         else
-            printf ("%04X    ", addr);
+            fprintf (g_pfilList, "%04X    ", addr);
         }
     int nByte = 0;
     while (addr < addrNext)
@@ -876,32 +902,32 @@ static void AL_Dump (const unsigned char *pBinary, AL_Type at, int addr, int add
         if (( at == atWord ) && ( addr + 2 > addrNext )) at = atByte;
         if ( at == atLong )
             {
-            printf (" %08X", AL_Long (&pBinary[addr]));
+            fprintf (g_pfilList, " %08X", AL_Long (&pBinary[addr]));
             addr += 4;
             if ( caddr >= 0 ) caddr += 4;
             }
         else if ( at == atWord )
             {
-            printf (" %04X", AL_Word (&pBinary[addr]));
+            fprintf (g_pfilList, " %04X", AL_Word (&pBinary[addr]));
             addr += 2;
             if ( caddr >= 0 ) caddr += 2;
             }
         else
             {
-            printf (" %02X", pBinary[addr]);
+            fprintf (g_pfilList, " %02X", pBinary[addr]);
             ++addr;
             if ( caddr >= 0 ) ++caddr;
             }
         if (( ++nByte >= 16 ) && (addr < addrNext))
             {
             if ((caddr >= 0) && (caddr < 0x800) && ((caddr & 0x03) == 0))
-                printf ("\n%04X %03X", addr, caddr >> 2);
+                fprintf (g_pfilList, "\n%04X %03X", addr, caddr >> 2);
             else
-                printf ("\n%04X    ", addr);
+                fprintf (g_pfilList, "\n%04X    ", addr);
             nByte = 0;
             }
         }
-    printf ("\n");
+    fprintf (g_pfilList, "\n");
     }
 
 // AL_SourceLine Methods:
@@ -959,34 +985,6 @@ int AL_Point::GetLine (int index) const
     return m_lines[index];
     }
 
-// AL_Routine Methods:
-
-// Constructor
-AL_Routine::AL_Routine (AL_Type at, const char *psName)
-    {
-    m_name = psName;
-    m_at = at;
-    m_vars.push_back (std::pair<AL_Type, std::string>(atSpinRes, std::string(psName)));
-    }
-
-// Define a symbol in the routine
-void AL_Routine::AddSymbol (AL_Type at, const char *psName)
-    {
-    m_vars.push_back (std::pair<AL_Type, std::string>(at, std::string(psName)));
-    }
-
-// Get the type of a symbol
-AL_Type AL_Routine::GetType (int iIndex) const
-    {
-    return m_vars[iIndex].first;
-    }
-
-// Get the name of a symbol
-const std::string *AL_Routine::GetSymbol (int iIndex) const
-    {
-    return &m_vars[iIndex].second;
-    }
-
 // AL_Object Methods:
 
 // Constructor
@@ -995,7 +993,6 @@ AL_Object::AL_Object (const char *psFile, const char *psPath)
     m_sFile = psFile;
     m_sPath = psPath;
     m_bOnHeap = false;
-    m_routines.push_back (AL_Routine (atSpinObj, "Next Object"));
     if (g_preprocessor) m_ppstate = pp_get_define_state(g_preprocessor);
     else m_ppstate = NULL;
     }
@@ -1014,25 +1011,9 @@ void AL_Object::SetType (AL_Type at, int addr)
     }
 
 // Include a sub-object from heap
-void AL_Object::Include (const AL_Object *pobj, int nOffset)
+void AL_Object::Include (AL_Object *pobj, int nOffset)
     {
-    m_include.push_back (std::pair<const AL_Object *, int>(pobj, nOffset));
-    }
-
-// Define a symbol in the object
-void AL_Object::AddSymbol (AL_Type at, const char *psName)
-    {
-    if ( ( at == atSpinPub ) || ( at == atSpinPri ) )
-        {
-        m_routines.push_back (AL_Routine (at, psName));
-        }
-    else if ( at == atSpinObj )
-        {
-        }
-    else
-        {
-        m_routines.back ().AddSymbol (at, psName);
-        }
+    m_include.push_back (std::pair<AL_Object *, int>(pobj, nOffset));
     }
 
 // Define an Object Global Variable
@@ -1055,7 +1036,7 @@ void AL_Object::PlaceLines (const AL_Object *pobj, int nOffset)
         {
         m_points[it->second.Addr () + nOffset].AddLine (pobj, it->first);
         }
-    std::vector<std::pair<const AL_Object *, int> >::const_iterator it2;
+    std::vector<std::pair<AL_Object *, int> >::const_iterator it2;
     for (it2 = pobj->m_include.begin (); it2 != pobj->m_include.end (); ++it2)
         {
         PlaceLines (it2->first, it2->second + nOffset);
@@ -1068,16 +1049,18 @@ void AL_Object::ListVariables (const std::string *psName, int &addr) const
     if ( m_variables[0].size () + m_variables[1].size () + m_variables[2].size () > 0 )
         {
         const char *psSize[] = { "byte", "word", "long" };
-        printf ("                       Variables for %s (%s)\n", psName->c_str (), m_sFile.c_str ());
+        fprintf (g_pfilList, "                       Variables for %s (%s)\n", psName->c_str (), m_sFile.c_str ());
         addr = ( addr + 3 ) & 0xFFFC;
+        int addrBase = addr;
         std::vector<std::pair<std::string, int> >::const_iterator it;
         for (int iSize = 2; iSize >= 0; --iSize)
             {
             for (it = m_variables[iSize].begin (); it != m_variables[iSize].end (); ++it)
                 {
-                printf ("%04X                   %s %s", addr, psSize[iSize], it->first.c_str ());
-                if ( it->second > 1 ) printf ("[%d]\n", it->second);
-                else printf ("\n");
+                fprintf (g_pfilList, "%04X     %04X          %s %s", addr, addr - addrBase, psSize[iSize],
+                    it->first.c_str ());
+                if ( it->second > 1 ) fprintf (g_pfilList, "[%d]\n", it->second);
+                else fprintf (g_pfilList, "\n");
                 addr += ( it->second ) << iSize;
                 }
             }
@@ -1125,17 +1108,17 @@ void AL_Object::Output (const unsigned char *pBinary, int nSize, const struct Co
     std::sort (adlist.begin (), adlist.end ());
     int addr = 0;
     unsigned int iFreq = *((unsigned int *)(&pBinary[addr]));
-    printf ("%04X     %08X      Frequency %d\n", 0, iFreq, iFreq);
+    fprintf (g_pfilList, "%04X     %08X      Frequency %d\n", 0, iFreq, iFreq);
     addr += 4;
-    printf ("%04X     %02X            Clock Mode\n", addr, pBinary[addr]);
+    fprintf (g_pfilList, "%04X     %02X            Clock Mode\n", addr, pBinary[addr]);
     ++addr;
-    printf ("%04X     %02X            Check Sum\n", addr, pBinary[addr]);
+    fprintf (g_pfilList, "%04X     %02X            Check Sum\n", addr, pBinary[addr]);
     ++addr;
     static const char *psTop[] = { "Base of Program", "Base of Variables", "Base of Stack",
                                    "Initial Program Counter", "Initial Stack Pointer" };
     for (int i = 0; i < 5; ++i)
         {
-        printf ("%04X     %04X          %s\n", addr, AL_Word(&pBinary[addr]), psTop[i]);
+        fprintf (g_pfilList, "%04X     %04X          %s\n", addr, AL_Word(&pBinary[addr]), psTop[i]);
         addr += 2;
         }
     size_t iPoint = 0;
@@ -1182,9 +1165,9 @@ void AL_Object::Output (const unsigned char *pBinary, int nSize, const struct Co
                     at = line.Type ();
                     caddr = line.CogAddr ();
                     if (( at == atPASM ) && ( caddr >= 0 ) && ( caddr < 0x800 ) && ((caddr & 0x03) == 0))
-                        printf ("     %03X               ", caddr >> 2);
+                        fprintf (g_pfilList, "     %03X               ", caddr >> 2);
                     else
-                        printf ("                       ");
+                        fprintf (g_pfilList, "                       ");
                     AL_Print (posn);
                     }
                 // posn = point.GetLine (nLine - 1);
@@ -1200,29 +1183,29 @@ void AL_Object::Output (const unsigned char *pBinary, int nSize, const struct Co
                     {
                     case atPASM:
                     case atLong:
-                        printf ("%04X %s %08X      ", addr, sCog, AL_Long (&pBinary[addr]));
+                        fprintf (g_pfilList, "%04X %s %08X      ", addr, sCog, AL_Long (&pBinary[addr]));
                         addr += 4;
                         if (caddr >= 0) caddr += 4;
                         break;
                     case atSpinObj:
-                        printf ("%04X %s %04X %04X     ", addr, sCog, AL_Word (&pBinary[addr]),
+                        fprintf (g_pfilList, "%04X %s %04X %04X     ", addr, sCog, AL_Word (&pBinary[addr]),
                             AL_Word (&pBinary[addr+2]));
                         addr += 4;
                         if (caddr >= 0) caddr += 4;
                         at = atWord;
                         break;
                     case atWord:
-                        printf ("%04X %s %04X          ", addr, sCog, AL_Word (&pBinary[addr]));
+                        fprintf (g_pfilList, "%04X %s %04X          ", addr, sCog, AL_Word (&pBinary[addr]));
                         addr += 2;
                         if (caddr >= 0) caddr += 2;
                         break;
                     case atByte:
-                        printf ("%04X %s %02X            ", addr, sCog, pBinary[addr]);
+                        fprintf (g_pfilList, "%04X %s %02X            ", addr, sCog, pBinary[addr]);
                         ++addr;
                         if (caddr >= 0) ++caddr;
                         break;
                     default:
-                        printf ("                       ");
+                        fprintf (g_pfilList, "                       ");
                         break;
                     }
                 AL_Print (posn);
@@ -1240,34 +1223,17 @@ void AL_Object::Output (const unsigned char *pBinary, int nSize, const struct Co
                 }
             else
                 {
-                std::vector<AL_Routine>::const_iterator it;
+                fprintf (g_pfilList, "%04X     %04X %04X     Link to Next Object\n",
+                    addr, AL_Word (&pBinary[addr]), AL_Word (&pBinary[addr+2]));
+                addr += 4;
+                std::vector<int>::const_iterator it;
                 for (it = pobj->m_routines.begin (); it != pobj->m_routines.end (); ++it)
                     {
-                    printf ("%04X     %04X %04X     Link to %s\n", addr, AL_Word (&pBinary[addr]),
-                        AL_Word (&pBinary[addr+2]), it->GetName ()->c_str ());
+                    fprintf (g_pfilList, "%04X     %04X %04X     Link to ",
+                        addr, AL_Word (&pBinary[addr]), AL_Word (&pBinary[addr+2]));
+                    AL_Print (*it);
                     addr += 4;
                     }
-                /*
-                std::vector<AL_ObjRef>::const_iterator it2;
-                for (it2 = pobj->m_subobjs.begin (); it2 != pobj->m_subobjs.end (); ++it2)
-                    {
-                    if ( it2->m_count > 1 )
-                        {
-                        for (int i = 0; i < it2->m_count; ++i)
-                            {
-                            printf ("%04X     %04X %04X     Link to %s[%d] : %s\n", addr,
-                                AL_Word (&pBinary[addr]), AL_Word (&pBinary[addr+2]),
-                                it2->m_name.c_str (), i, it2->m_pobj->File ()->c_str ());
-                            }
-                        }
-                    else
-                        {
-                        printf ("%04X     %04X %04X     Link to %s : %s\n", addr,
-                            AL_Word (&pBinary[addr]), AL_Word (&pBinary[addr+2]),
-                            it2->m_name.c_str (), it2->m_pobj->File ()->c_str ());
-                        }
-                    }
-                */
                 }
             }
         do
@@ -1281,9 +1247,9 @@ void AL_Object::Output (const unsigned char *pBinary, int nSize, const struct Co
     std::string sName = "TOP";
     ListVariables (&sName, addr);
     addr = ( addr + 3 ) & 0xFFFC;
-    printf ("%04X                   Reserved 8 bytes.\n", addr);
+    fprintf (g_pfilList, "%04X                   Reserved 8 bytes.\n", addr);
     addr = AL_Word(&pBinary[10]);
-    printf ("%04X                   Base of stack.\n", addr);
+    fprintf (g_pfilList, "%04X                   Base of stack.\n", addr);
     addr += pcd->stack_requirement;
-    printf ("%04X                   Top of stack.\n", addr);
+    fprintf (g_pfilList, "%04X                   Top of stack.\n", addr);
     }

@@ -3,18 +3,20 @@
 #ifndef H_ANNOTATE
 #define H_ANNOTATE
 
+// Destinations for listing
+enum AL_Mode {amNone, amConsole, amOutput, amFile};
+
 // Annotation types
-enum AL_Type {atSpinCode, atSpinObj, atSpinPub, atSpinPri, atSpinPar, atSpinRes, atSpinLoc,
-              atDAT, atByte, atWord, atLong, atPASM};
+enum AL_Type {atSpinCode, atSpinObj, atDAT, atByte, atWord, atLong, atPASM};
 
 // Request collection of annotation data
-void AL_Request (void);
+void AL_Request (AL_Mode, const char *psFile);
 // Enable annotated listing
 void AL_Enable (bool bEnable);
 // Open collection of data for an object
 void AL_OpenObject (const char *psFile, const struct CompilerData *pcd, struct preprocess *preproc);
-// Save Code Symbols
-void AL_Symbol (AL_Type at, int posn, const char *psSymbol, int addr, int caddr = -1);
+// Save Routine entry locations
+void AL_Routine (int posn);
 // Associate a code line with an address
 void AL_AddLine (AL_Type at, int posn, int addr, int caddr = -1);
 // Set a data type for a given address

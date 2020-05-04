@@ -15,7 +15,8 @@ Status
     +   Adding processing of the "-l" option.
     +   Adding the "Annotate.h" header as required.
     +   Including calls to routines AL_* (...) all of which have input only parameters.
-    So I am certain that the generated code will be identical to the original source.
+
+So I am certain that the generated code will be identical to the original source.
 
 *   By comparison with the binary data I am reasonably confident that the PUB, PRI and DAT
     blocks are correctly placed.
@@ -23,7 +24,8 @@ Status
 *   The translation of the Spin ByteCode bytes to mnemonics is based upon the information in:
     +   https://github.com/rosco-pc/propeller-wiki/wiki/Spin-Byte-Code
     +   http://forums.parallax.com/discussion/111684/spin-bytecode
-    The result looks plausible, but there are some ambiguities so this may not always be correct.
+
+The result looks plausible, but there are some ambiguities so this may not always be correct.
 
 *   The placement of variables looks plausible, but there is less information to cross reference.
     Object arrays and nested sub-objects have not been tested.

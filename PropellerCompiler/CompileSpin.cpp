@@ -615,11 +615,11 @@ unsigned char* CompileSpin(char* pFilename, int* pnResultLength)
 
     int nOriginalSize = 0;
 
-    AL_Enable (true);
 restart_compile:
     s_pCompilerData = InitStruct();
     s_pCompilerData->bUnusedMethodElimination = s_compilerConfig.bUnusedMethodElimination;
     s_pCompilerData->bFinalCompile = s_bFinalCompile;
+    AL_Enable (s_bFinalCompile | (! s_compilerConfig.bUnusedMethodElimination));
 
     s_pCompilerData->list = new char[ListLimit];
     s_pCompilerData->list_limit = ListLimit;

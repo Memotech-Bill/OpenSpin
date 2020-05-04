@@ -486,9 +486,7 @@ bool CompileSubBlocksId_Compile(int blockType, bool &bFirst, int &nMethodIndex)
                     g_pCompilerData->error_msg = g_pErrorStrings[error_eausn];
                     return false;
                 }
-                AL_Symbol ((blockType == block_pub) ? atSpinPub : atSpinPri,
-                    g_pElementizer->GetSourcePtr (), g_pElementizer->GetCurrentSymbol(),
-                    g_pCompilerData->obj_ptr);
+                int iAL_RtnPtr = g_pElementizer->GetSourcePtr ();
 
                 // save a copy of the symbol
                 g_pElementizer->BackupSymbol();
@@ -512,10 +510,6 @@ bool CompileSubBlocksId_Compile(int blockType, bool &bFirst, int &nMethodIndex)
                                 if (params < 15)
                                 {
                                     params++;
-                                    AL_Symbol (atSpinPar,
-                                        g_pElementizer->GetSourcePtr (),
-                                        g_pElementizer->GetCurrentSymbol(),
-                                        g_pCompilerData->obj_ptr);
                                     bool bComma = false;
                                     if (!GetCommaOrRight(bComma))
                                     {
@@ -561,10 +555,6 @@ bool CompileSubBlocksId_Compile(int blockType, bool &bFirst, int &nMethodIndex)
                             g_pCompilerData->error_msg = g_pErrorStrings[error_eaurn];
                             return false;
                         }
-                        AL_Symbol (atSpinRes,
-                            g_pElementizer->GetSourcePtr (),
-                            g_pElementizer->GetCurrentSymbol(),
-                            g_pCompilerData->obj_ptr);
                     }
                     // check for locals
                     locals = 0;
@@ -585,10 +575,6 @@ bool CompileSubBlocksId_Compile(int blockType, bool &bFirst, int &nMethodIndex)
                             }
                             if (g_pElementizer->GetType() == type_undefined)
                             {
-                                AL_Symbol (atSpinPar,
-                                    g_pElementizer->GetSourcePtr (),
-                                    g_pElementizer->GetCurrentSymbol(),
-                                    g_pCompilerData->obj_ptr);
                                 // is it an array?
                                 if (g_pElementizer->CheckElement(type_leftb))
                                 {
@@ -655,6 +641,7 @@ bool CompileSubBlocksId_Compile(int blockType, bool &bFirst, int &nMethodIndex)
                         value <<= 8;
                         value |= (g_pCompilerData->obj_ptr >> 2) & 0xFF;
                         g_pSymbolEngine->AddSymbol(g_pCompilerData->symbolBackup, type_sub, value, blockType);
+                        AL_Routine (iAL_RtnPtr);
 #ifdef RPE_DEBUG
                         printf("Pub/Pri %s %d (%d, %d)\n", g_pCompilerData->symbolBackup, value, params, g_pCompilerData->obj_ptr);
 #endif
@@ -1550,8 +1537,6 @@ bool CompileObjBlocks()
         // write var ptr back to index
         *pIndex = (unsigned short)(g_pCompilerData->var_ptr);
         pIndex++;
-        AL_Symbol (atSpinObj, g_pCompilerData->obj_name_start[index],
-            &g_pCompilerData->obj_filenames[index << 8], g_pCompilerData->obj_start + 4 * i);
 
         // update var ptr and check limit
         g_pCompilerData->var_ptr += objvar[index];

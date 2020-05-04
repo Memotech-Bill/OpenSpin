@@ -40,14 +40,16 @@ static void Usage(void)
 usage: openspin\n\
          [ -h ]                 display this help\n\
          [ -L or -I <path> ]    add a directory to the include path\n\
-         [ -o <path> ]          output filename\n\
+         [ -o <output> ]        output filename\n\
          [ -b ]                 output binary file format\n\
          [ -e ]                 output eeprom file format\n\
          [ -c ]                 output only DAT sections\n\
          [ -d ]                 dump out doc mode\n\
          [ -t ]                 output just the object file tree\n\
          [ -f ]                 output a list of filenames for use in archiving\n\
-         [ -l ]                 *NEW* Generate an Annotated Listing of the binary\n\
+         [ -lc ]                Annotated Listing of binary to console\n\
+         [ -lf <list_file> ]    Annotated Listing of binary to named file\n\
+         [ -lo ]                Annotated Listing of binary to <output>.lst\n\
          [ -q ]                 quiet mode (suppress banner and non-error text)\n\
          [ -v ]                 verbose output\n\
          [ -p ]                 disable the preprocessor\n\
@@ -164,6 +166,8 @@ int main(int argc, char* argv[])
     char* outfile = NULL;
     char* p = NULL;
     s_nFilesAccessed = 0;
+    AL_Mode mode = amNone;
+    const char *psList = NULL;
 
     // go through the command line arguments, skipping over any -D
     for(int i = 1; i < argc; i++)
@@ -293,7 +297,26 @@ int main(int argc, char* argv[])
                 break;
 
             case 'l':
-                AL_Request ();
+                switch (argv[i][2])
+                {
+                    case 'c':
+                        mode = amConsole;
+                        break;
+                    case 'o':
+                        mode = amOutput;
+                        break;
+                    case 'f':
+                        mode = amFile;
+                        if(argv[i][3]) psList = &argv[i][3];
+                        else if(++i < argc) psList = argv[i];
+                        else
+                        {
+                            Usage();
+                            CleanupPathEntries();
+                            return 1;
+                        }
+                        break;
+                }
                 break;
 
             case 'q':
@@ -339,6 +362,13 @@ int main(int argc, char* argv[])
         CleanupPathEntries();
         return 1;
     }
+
+    if ( mode == amOutput )
+    {
+        if (outfile) psList = outfile;
+        else psList = infile;
+    }
+    AL_Request (mode, psList);
 
     if (compilerConfig.bFileTreeOutputOnly || compilerConfig.bFileListOutputOnly || compilerConfig.bDumpSymbols)
     {
