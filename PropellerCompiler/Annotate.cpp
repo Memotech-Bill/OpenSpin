@@ -171,7 +171,6 @@ void AL_OpenObject (const char *psFile, const struct CompilerData *pcd, struct p
         g_preprocessor = preproc;
         if (( g_alobj == NULL ) || ( *g_alobj->File () != psFile ))
             {
-            std::map<int, AL_Object *>::iterator it;
             if ( ( g_alobj != NULL ) && ( ! g_alobj->GetOnHeap () ) ) delete g_alobj;
             g_alobj = new AL_Object (psFile, pcd->current_file_path);
             }
@@ -287,6 +286,27 @@ void AL_Distill (int start, int length, int reloc)
         }
     }
 
+// Free all allocated memory
+void AL_Reset (void)
+    {
+    if ( ( g_alobj != NULL ) && ( ! g_alobj->GetOnHeap () ) ) delete g_alobj;
+    g_alobj = NULL;
+    std::map<int, AL_Object *>::iterator it;
+    for (it = g_alheap.begin (); it != g_alheap.end (); ++it)
+        delete it->second;
+    g_alheap.clear ();
+    g_objs.clear ();
+    g_bSelected = false;
+    g_bEnable = false;
+    g_pSource = NULL;
+    g_pobjFile = NULL;
+    if (g_pFileSrc != NULL) free (g_pFileSrc);
+    g_pFileSrc = NULL;
+    g_preprocessor = NULL;
+    g_sListFile.clear ();
+    g_pfilList = NULL;
+    }
+
 // Output the annotated listing
 void AL_Output (const unsigned char *pBinary, int nSize, const struct CompilerData *pcd)
     {
@@ -307,6 +327,7 @@ void AL_Output (const unsigned char *pBinary, int nSize, const struct CompilerDa
                 }
             }
         }
+    AL_Reset ();
     }
 
 // Load source file - Unfortunately GetPASCIISource has a fixed destination,
@@ -842,10 +863,10 @@ static void AL_ByteCode (const unsigned char *pBinary, int addr, int addrNext)
                     {
                     switch (bl & 0x18)
                         {
-                        case 0x00: sArgs += "pre-inc"; break;
-                        case 0x08: sArgs += "post-inc"; break;
-                        case 0x10: sArgs += "pre-dec"; break;
-                        case 0x18: sArgs += "post-dec"; break;
+                        case 0x00: sArgs += ", pre-inc"; break;
+                        case 0x08: sArgs += ", post-inc"; break;
+                        case 0x10: sArgs += ", pre-dec"; break;
+                        case 0x18: sArgs += ", post-dec"; break;
                         }
                     switch (bl & 0x06)
                         {
@@ -877,7 +898,7 @@ static void AL_ByteCode (const unsigned char *pBinary, int addr, int addrNext)
                                 }
                             else
                                 {
-                                sArgs += "write";
+                                sArgs += ", write";
                                 }
                             break;
                         case 0x08: sArgs += ", random forward"; break;
