@@ -1016,6 +1016,7 @@ AL_Object::AL_Object (const char *psFile, const char *psPath)
     m_bOnHeap = false;
     if (g_preprocessor) m_ppstate = pp_get_define_state(g_preprocessor);
     else m_ppstate = NULL;
+    m_bFixup = false;
     }
 
 // Add location of a source line
