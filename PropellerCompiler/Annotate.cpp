@@ -1176,9 +1176,26 @@ void AL_Object::Output (const unsigned char *pBinary, int nSize, const struct Co
     std::sort (adlist.begin (), adlist.end ());
     int addr = 0;
     unsigned int iFreq = *((unsigned int *)(&pBinary[addr]));
-    fprintf (g_pfilList, "%04X     %08X      Frequency %d\n", 0, iFreq, iFreq);
+    fprintf (g_pfilList, "%04X     %08X      Frequency %d Hz\n", 0, iFreq, iFreq);
     addr += 4;
-    fprintf (g_pfilList, "%04X     %02X            Clock Mode\n", addr, pBinary[addr]);
+    unsigned char bclk = pBinary[addr];
+    std::string sClock = "Clock mode: ";
+    if ( bclk & 0x20 )
+        {
+        static const char *psSrc[] = {"XInput", "Xtal1", "Xtal2", "Xtal3" };
+        sClock += psSrc[(bclk & 0x18) >> 3];
+        if ( ( bclk & 0x40 ) && ( ( bclk & 0x07 ) >= 0x03 ) )
+            {
+            char sPLL[10];
+            sprintf (sPLL, " + Pll%dX", 1 << ( ( bclk & 0x07 ) - 0x03 ));
+            sClock += sPLL;
+            }
+        }
+    else
+        {
+        sClock = ( bclk & 0x01 ) ? "RCSlow" : "RCFast";
+        }
+    fprintf (g_pfilList, "%04X     %02X            %s\n", addr, bclk, sClock.c_str ());
     ++addr;
     fprintf (g_pfilList, "%04X     %02X            Check Sum\n", addr, pBinary[addr]);
     ++addr;
