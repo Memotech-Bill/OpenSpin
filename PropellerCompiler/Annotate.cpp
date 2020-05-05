@@ -1146,7 +1146,7 @@ void AL_Object::ListVariables (const std::string *psName, int &addr) const
         const AL_ObjRef &objref = m_subobjs.at(*it3);
         if ( objref.m_count > 1 )
             {
-            for (int i = 0; i < objref.m_count; ++it2)
+            for (int i = 0; i < objref.m_count; ++i)
                 {
                 char sDim[12];
                 sprintf (sDim, "[%d]", i);
