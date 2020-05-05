@@ -1244,18 +1244,16 @@ void AL_Object::Output (const unsigned char *pBinary, int nSize, const struct Co
                     }
                 for (int i = 0; i < nLine - 1; ++i)
                     {
-                    // posn = point.GetLine (i);
                     posn = order[i];
                     const AL_SourceLine &line = pobj->m_lines.at (posn);
                     at = line.Type ();
                     caddr = line.CogAddr ();
                     if (( at == atPASM ) && ( caddr >= 0 ) && ( caddr < 0x800 ) && ((caddr & 0x03) == 0))
-                        fprintf (g_pfilList, "     %03X               ", caddr >> 2);
+                        fprintf (g_pfilList, "%04X %03X               ", addr, caddr >> 2);
                     else
-                        fprintf (g_pfilList, "                       ");
+                        fprintf (g_pfilList, "%04X                   ", addr);
                     AL_Print (posn);
                     }
-                // posn = point.GetLine (nLine - 1);
                 posn = order[nLine - 1];
                 const AL_SourceLine &line = pobj->m_lines.at (posn);
                 at = line.Type ();
@@ -1290,7 +1288,7 @@ void AL_Object::Output (const unsigned char *pBinary, int nSize, const struct Co
                         if (caddr >= 0) ++caddr;
                         break;
                     default:
-                        fprintf (g_pfilList, "                       ");
+                        fprintf (g_pfilList, "%04X %s               ", addr, sCog);
                         break;
                     }
                 AL_Print (posn);

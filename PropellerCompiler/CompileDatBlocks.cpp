@@ -250,7 +250,6 @@ bool CompileDatBlocks_File(bool bSymbol, bool bResSymbol, int& size)
 bool CompileDatBlocks_AsmDirective(bool bSymbol, bool& bResSymbol, int& size)
 {
     size = 2; // force to long size
-    AL_SetType (atPASM);
 
     int directive = g_pElementizer->GetValue() & 0x000000FF;
     switch (directive)
