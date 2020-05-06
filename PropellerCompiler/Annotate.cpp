@@ -454,7 +454,7 @@ static unsigned int AL_BLong (const unsigned char *pdata)
     }
 
 // Get an address from a byte array
-unsigned int AL_Address (const unsigned char *pdata, bool &bWord)
+unsigned int AL_Address (const unsigned char *pdata, bool bSigned, bool &bWord)
     {
     unsigned int ll;
     unsigned char bl = pdata[0];
@@ -463,14 +463,21 @@ unsigned int AL_Address (const unsigned char *pdata, bool &bWord)
         ll = bl;
         ll = ( ll << 8 ) | pdata[1];
         fprintf (g_pfilList, " %02X %02X", bl, pdata[1]);
-        if ( ! (bl & 0x40) ) ll &= 0x3FFF;
+        if ( bSigned )
+            {
+            if ( ! (bl & 0x40) ) ll &= 0x3FFF;
+            }
+        else
+            {
+            ll &= 0x7FFF;
+            }
         bWord = true;
         }
     else
         {
         fprintf (g_pfilList, " %02X", bl);
         ll = bl;
-        if ( bl & 0x40 ) ll |= 0xFF30;
+        if (( bSigned ) && ( bl & 0x40 )) ll |= 0xFFC0;
         bWord = false;
         }
     return ll;
@@ -828,7 +835,7 @@ static void AL_ByteCode (const unsigned char *pBinary, int addr, int addrNext)
             case ByteCode::op_Signed_Offset:
             case ByteCode::op_Unsigned_Offset:
             case ByteCode::op_Memory_Opcode:
-                ll = AL_Address (&pBinary[++addr], bWord);
+                ll = AL_Address (&pBinary[++addr], (codes[bc].op == ByteCode::op_Signed_Offset), bWord);
                 if ( bWord )
                     {
                     ++addr;
@@ -839,7 +846,7 @@ static void AL_ByteCode (const unsigned char *pBinary, int addr, int addrNext)
                 sArgs += sAddr;
                 break;
             case ByteCode::op_Unsigned_Effected_Offset:
-                ll = AL_Address (&pBinary[++addr], bWord);
+                ll = AL_Address (&pBinary[++addr], false, bWord);
                 if ( bWord )
                     {
                     ++addr;
@@ -886,7 +893,7 @@ static void AL_ByteCode (const unsigned char *pBinary, int addr, int addrNext)
                                 {
                                 sArgs += ", repeat-var loop";
                                 if (bl & 0x04) sArgs += ", pop step";
-                                ll = AL_Address (&pBinary[++addr], bWord);
+                                ll = AL_Address (&pBinary[++addr], true, bWord);
                                 if ( bWord )
                                     {
                                     ++addr;
