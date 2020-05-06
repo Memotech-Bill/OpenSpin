@@ -508,8 +508,8 @@ static void AL_ByteCode (const unsigned char *pBinary, int addr, int addrNext)
             {"Call", ByteCode::op_Byte_Literal},	// 05
             {"Objcall", ByteCode::op_Obj_Call_Pair},	// 06
             {"Objcall_Indexed", ByteCode::op_Obj_Call_Pair},	// 07
-            {"LoByteCode::op_Start", ByteCode::op_Signed_Offset},	// 08
-            {"LoByteCode::op_Continue", ByteCode::op_Signed_Offset},	// 09
+            {"Loop_Start", ByteCode::op_Signed_Offset},	// 08
+            {"Loop_Continue", ByteCode::op_Signed_Offset},	// 09
             {"Jump_If_False", ByteCode::op_Signed_Offset},	// 0A
             {"Jump_If_True", ByteCode::op_Signed_Offset},	// 0B
             {"Jump_From_Stack", ByteCode::op_None},	// 0C
