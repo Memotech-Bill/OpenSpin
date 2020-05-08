@@ -1255,7 +1255,7 @@ void AL_Object::Output (const unsigned char *pBinary, int nSize, const struct Co
                     const AL_SourceLine &line = pobj->m_lines.at (posn);
                     at = line.Type ();
                     caddr = line.CogAddr ();
-                    if (( at == atPASM ) && ( caddr >= 0 ) && ( caddr < 0x800 ) && ((caddr & 0x03) == 0))
+                    if (( at >= atDAT ) && ( caddr >= 0 ) && ( caddr < 0x800 ) && ((caddr & 0x03) == 0))
                         fprintf (g_pfilList, "%04X %03X               ", addr, caddr >> 2);
                     else
                         fprintf (g_pfilList, "%04X                   ", addr);

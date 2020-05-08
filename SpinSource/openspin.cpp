@@ -29,7 +29,7 @@ static void Banner(void)
     fprintf(stdout, "Propeller Spin/PASM Compiler \'OpenSpin\' (c)2012-2018 Parallax Inc. DBA Parallax Semiconductor.\n");
     fprintf(stdout, "Fork by Memotech Bill to add \"Annotated Listing\" of generated binary.\n");
     fprintf(stdout, "https://github.com/Memotech-Bill/OpenSpin\n");
-    fprintf(stdout, "Version 1.01.03 Compiled on %s %s\n",__DATE__, __TIME__);
+    fprintf(stdout, "Version 1.01.04 Compiled on %s %s\n",__DATE__, __TIME__);
 }
 
 /* Usage - display a usage message and exit */
